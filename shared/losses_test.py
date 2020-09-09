@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for structured_labels.losses."""
+"""Tests for shared.losses."""
 
 import tensorflow as tf
 
-from structured_labels import losses
+from shared import losses
 from absl.testing import absltest
 
 _EMBEDDING_SIZE = 5

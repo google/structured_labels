@@ -17,8 +17,8 @@ import glob
 import os
 import pickle
 
-from structured_labels import architectures
-from structured_labels import losses
+from shared import architectures
+from shared import losses
 import tensorflow as tf
 
 

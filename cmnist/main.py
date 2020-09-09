@@ -17,8 +17,8 @@
 from absl import app
 from absl import flags
 
-from structured_labels import cmnist_lib
-from structured_labels import train
+from cmnist import data_builder
+from shared import train
 
 FLAGS = flags.FLAGS
 flags.DEFINE_float('p_tr', .7, 'proportion of data used for training.')
@@ -52,7 +52,7 @@ def main(argv):
 
   def dataset_builder():
 
-    return cmnist_lib.build_input_fns(
+    return dataset_builder.build_input_fns(
         p_tr=FLAGS.p_tr,
         py1_y0=FLAGS.py1_y0,
         py1_y0_s=FLAGS.py1_y0_s,

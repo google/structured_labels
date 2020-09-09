@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for structured_labels.architectures."""
+"""Tests for shared.architectures."""
 
 from absl.testing import absltest
-from structured_labels import architectures
+from shared import architectures
 import tensorflow as tf
 
 _BATCH_SIZE = 10
