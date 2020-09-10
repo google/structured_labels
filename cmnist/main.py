@@ -32,7 +32,7 @@ flags.DEFINE_string('exp_dir', '/data/ddmg/slabs/',
 										'Directory to save trained model in.')
 flags.DEFINE_integer('num_epochs', 10, 'number of epochs.')
 flags.DEFINE_integer('batch_size', 32, 'batch size.')
-flags.DEFINE_integer('training_steps', 10,
+flags.DEFINE_integer('training_steps', 3000,
 										'number of estimator training steps.')
 flags.DEFINE_float('alpha', 1.0, 'Value for the cross prediction penelty')
 flags.DEFINE_float('sigma', 1.0, 'Value for the MMD kernel bandwidth.')
