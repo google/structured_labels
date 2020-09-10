@@ -22,6 +22,15 @@ from shared import losses
 import tensorflow as tf
 
 
+def flatten_dict(dd, separator='_', prefix=''):
+	return {
+		prefix + separator + k if prefix else k: v
+		for kk, vv in dd.items()
+		for k, v in flatten_dict(vv, separator, kk).items()
+	} if isinstance(dd,
+		dict) else {prefix: dd}
+
+
 def cleanup_directory(directory):
 	"""Deletes all files within directory and its subdirectories.
 
@@ -179,8 +188,10 @@ def train(exp_dir,
 		cleanup_directory(exp_dir)
 
 	savefile = f"{exp_dir}/performance.pkl"
-	pickle.dump({
+	all_results = {
 		"validation": validation_results,
 		"same_distribution": same_distribution_results,
 		"shift_distribution": shift_distribution_results
-	}, open(savefile, "wb"))
+	}
+	all_results = flatten_dict(all_results)
+	pickle.dump(all_results, open(savefile, "wb"))

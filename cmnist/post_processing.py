@@ -16,8 +16,9 @@
 Script collects results from different experiment settings and different models
 then produces the main plot.
 """
+import hashlib
 import logging
-import multiprocessing.pool
+from multiprocessing import Pool
 import os
 import pickle
 
@@ -27,29 +28,20 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import matplotlib.pyplot as plt
 import pandas as pd
+import tqdm
 
-from structured_labels import configurator
+from cmnist import configurator
+
 
 FLAGS = flags.FLAGS
-flags.DEFINE_enum('exp_name', 'cmnist', ['cmnist', 'cmnist_no_overlap'],
+flags.DEFINE_enum('exp_name', 'correlation', ['correlation', 'overlap'],
 									'Name of the experiment.')
 
-flags.DEFINE_string('results_output_directory',
-										'/usr/local/tmp/slabs/correlation_sweep/results',
-										'Directory where the results should be saved')
-
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
+	'cmnist'))
 MODELS = ['slabs', 'simple_baseline']
 NUM_WORKERS = 10
-DIRECTORY_TO_MODEL_MAPPER = {
-	'/usr/local/tmp/slabs/correlation_sweep/cmnist_slabs':
-		'slabs',
-	'/usr/local/tmp/slabs/correlation_sweep/cmnist_simple_baseline':
-		'simple_baseline',
-	'/usr/local/tmp/slabs/correlation_sweep/cmnist_no_overlap_slabs':
-		'slabs',
-	'/usr/local/tmp/slabs/correlation_sweep/cmnist_no_overlap_simple_baselines':
-		'simple_baseline'
-}
+X_AXIS_VAR = 'py1_y0_s'
 
 GREEN = '#2ca02c'
 RED = '#d62728'
@@ -69,21 +61,22 @@ def plot_errorbars_same_and_shifted(axis, model_results, metric, color):
 	Returns:
 		None. Just adds the errorbars to an existing plot.
 	"""
+	# TODO x-axis variable
 	axis.errorbar(
 		model_results.py1_y0_s,
-		model_results[f'{metric}_shift_mean'],
-		yerr=model_results[f'{metric}_shift_std'],
+		model_results[f'shift_distribution_{metric}_mean'],
+		yerr=model_results[f'shift_distribution_{metric}_std'],
 		color=color)
 
 	axis.errorbar(
 		model_results.py1_y0_s,
-		model_results[f'{metric}_same_mean'],
-		yerr=model_results[f'{metric}_same_std'],
+		model_results[f'same_distribution_{metric}_mean'],
+		yerr=model_results[f'same_distribution_{metric}_std'],
 		color=color,
 		linestyle='--')
 
 
-def import_helper(config):
+def import_helper(args):
 	"""Imports the dictionary with the results of an experiment.
 
 	Args:
@@ -98,74 +91,55 @@ def import_helper(config):
 	Returns:
 		pandas dataframe of results if the file was found, none otherwise
 	"""
-	exp_dir = config['exp_dir']
-	random_seed = config['random_seed']
-	py1_y0_s = config['py1_y0_s']
-	alpha = config['alpha']
-	sigma = config['sigma']
-	l2_penalty = config['l2_penalty']
-	dropout_rate = config['dropout_rate']
-	dim = config['embedding_dim']
+	# TODO update docstring
+	model, config = args
+	config_string = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
+	hash_string = hashlib.sha256(config_string.encode()).hexdigest()
+	hash_dir = os.path.join(BASE_DIR, 'tuning', hash_string)
+	performance_file = os.path.join(hash_dir, 'performance.pkl')
 
-	mmd_param_str = f'alpha{alpha}_sigma{sigma}'
-	regularization_param_str = f'l2{l2_penalty}_dropout{dropout_rate}_dim{dim}'
-	experiment_param_str = f'pshift{py1_y0_s}_seed{int(random_seed)}'
-
-	experiment_file = os.path.join(
-		exp_dir,
-		f'{mmd_param_str}_{regularization_param_str}_{experiment_param_str}',
-		'performance_dump.pkl')
-
-	if not os.path.exists(experiment_file):
-		logging.error('Couldnt find %s', experiment_file)
+	if not os.path.exists(performance_file):
+		logging.error('Couldnt find %s', performance_file)
 		return None
 
-	results_dict = pickle.load(open(experiment_file, 'rb'))
-	model = DIRECTORY_TO_MODEL_MAPPER[exp_dir]
-	return pd.DataFrame(
-		{
-			'model': model,
-			'random_seed': random_seed,
-			'py1_y0_s': py1_y0_s,
-			'sigma': sigma,
-			'alpha': alpha,
-			'l2': l2_penalty,
-			'embedding_dim': dim,
-			'dropout': dropout_rate,
-			'acc_valid': results_dict['validation']['accuracy'],
-			'acc_same': results_dict['same_distribution']['accuracy'],
-			'acc_shift': results_dict['shift_distribution']['accuracy'],
-			'loss_valid': results_dict['validation']['loss'],
-			'loss_same': results_dict['same_distribution']['loss'],
-			'loss_shift': results_dict['shift_distribution']['loss']
-		},
-		index=[0])
+	results_dict = pickle.load(open(performance_file, 'rb'))
+	results_dict.update(config)
+	results_dict['model'] = model
+	return pd.DataFrame(results_dict, index=[0])
 
 
 def main(argv):
 	del argv
+	all_config = []
+	for model in MODELS:
+		all_config.extend([(model, config) for config in configurator.get_sweep
+			(FLAGS.exp_name, model)][:10])
 
-	parameters = [
-		configurator.get_sweep(FLAGS.exp_name, model) for model in MODELS
-	]
-	parameter_list = list(parameters)
+	pool = Pool(NUM_WORKERS)
+	res = []
+	for config_res in tqdm.tqdm(pool.imap_unordered(import_helper, all_config),
+		total=len(all_config)):
+		res.append(config_res)
 
-	pool = multiprocessing.pool.ThreadPool(NUM_WORKERS)
-	all_results = pool.map(import_helper, parameter_list)
-	res = pd.concat(all_results, axis=0, ignore_index=True, sort=False)
+	res = pd.concat(res, axis=0, ignore_index=True, sort=False)
+
+	results_dir = os.path.join(BASE_DIR, 'results')
+	if not os.path.exists(results_dir):
+		os.system(f'mkdir -p {results_dir}')
 
 	res.to_csv(
-		os.path.join(FLAGS.results_output_directory,
-			f'{FLAGS.exp_name}_all_results.csv'),
+		os.path.join(results_dir, f'{FLAGS.exp_name}_xval_results.csv'),
 		index=False)
+	# TODO: x-axis variable
 	res = res.groupby(
-		['model', 'py1_y0_s', 'sigma', 'alpha', 'l2', 'embedding_dim',
-		'dropout']).agg({'acc_valid': ['mean', 'std'],
-			'acc_same': ['mean', 'std'],
-			'acc_shift': ['mean', 'std'],
-			'loss_valid': ['mean', 'std'],
-			'loss_same': ['mean', 'std'],
-			'loss_shift': ['mean', 'std']
+		['model', 'py1_y0_s', 'sigma', 'alpha', 'l2_penalty', 'embedding_dim',
+		'dropout_rate']).agg({
+			'validation_accuracy': ['mean', 'std'],
+			'same_distribution_accuracy': ['mean', 'std'],
+			'shift_distribution_accuracy': ['mean', 'std'],
+			'validation_loss': ['mean', 'std'],
+			'same_distribution_loss': ['mean', 'std'],
+			'shift_distribution_loss': ['mean', 'std']
 		}).reset_index()
 	res.columns = ['_'.join(col).strip() for col in res.columns.values]
 	res.rename(
@@ -174,8 +148,8 @@ def main(argv):
 			'py1_y0_s_': 'py1_y0_s',
 			'sigma_': 'sigma',
 			'alpha_': 'alpha',
-			'l2_': 'l2',
-			'dropout_': 'dropout',
+			'l2_penalty_': 'l2_penalty',
+			'dropout_rate_': 'dropout_rate',
 			'embedding_dim_': 'embedding_dim',
 		},
 		axis=1,
@@ -183,7 +157,8 @@ def main(argv):
 
 	idx = res.groupby(
 		['model',
-		'py1_y0_s'])['loss_valid_mean'].transform(min) == res['loss_valid_mean']
+		X_AXIS_VAR])['validation_loss_mean'].transform(min) == res[
+		'validation_loss_mean']
 	res_min_loss = res[idx].copy().reset_index(drop=True)
 	res_slabs = res_min_loss[(res_min_loss.model == 'slabs')]
 	res_simple_baseline = res_min_loss[(res_min_loss.model == 'simple_baseline')]
@@ -200,8 +175,9 @@ def main(argv):
 		Patch(facecolor=GREEN, label='Baseline')
 	]
 
-	plot_errorbars_same_and_shifted(axes[0], res_slabs, 'acc', RED)
-	plot_errorbars_same_and_shifted(axes[0], res_simple_baseline, 'acc', GREEN)
+	plot_errorbars_same_and_shifted(axes[0], res_slabs, 'accuracy', RED)
+	plot_errorbars_same_and_shifted(axes[0], res_simple_baseline, 'accuracy',
+		GREEN)
 
 	plot_errorbars_same_and_shifted(axes[1], res_slabs, 'loss', RED)
 	plot_errorbars_same_and_shifted(axes[1], res_simple_baseline, 'loss', GREEN)
@@ -213,9 +189,7 @@ def main(argv):
 	axes[1].set_xlabel('Conditional probability in shifted distribution')
 	axes[1].set_ylabel('Loss')
 	axes[1].legend(handles=legend_elements, loc='upper right')
-	plt.savefig(
-		os.path.join(FLAGS.results_output_directory,
-			f'{FLAGS.exp_name}_final_result.pdf'))
+	plt.savefig(os.path.join(results_dir, f'{FLAGS.exp_name}_plot.pdf'))
 	plt.clf()
 	plt.close()
 

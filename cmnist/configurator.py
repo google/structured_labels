@@ -125,7 +125,7 @@ def get_sweep(experiment, model):
 	"""
 	if experiment not in ['correlation', 'overlap']:
 		raise NotImplementedError((f'Experiment {experiment} parameter'
-															'configureation not implemented'))
+															' configuration not implemented'))
 	if model not in ['slabs', 'simple_baseline']:
 		raise NotImplementedError((f'Model {model} parameter configuration'
 															'not implemented'))
