@@ -28,20 +28,20 @@ _DROPOUT_RATE = 0.0
 
 class ArchitecturesTest(absltest.TestCase):
 
-  def setUp(self):
-    super(ArchitecturesTest, self).setUp()
-    self._inputs = tf.ones(
-        [_BATCH_SIZE, _INPUT_SIZE, _INPUT_SIZE, _INPUT_CHANNELS])
+	def setUp(self):
+		super(ArchitecturesTest, self).setUp()
+		self._inputs = tf.ones(
+			[_BATCH_SIZE, _INPUT_SIZE, _INPUT_SIZE, _INPUT_CHANNELS])
 
-  def test_output_shapes(self):
-    net = architectures.SimpleConvolutionNet(
-        dropout_rate=_DROPOUT_RATE,
-        l2_penalty=_L2_PENALTY,
-        embedding_dim=_EMBEDDING_DIM)
-    y, z = net(self._inputs)
-    self.assertEqual(y.shape, (_BATCH_SIZE, 1))
-    self.assertEqual(z.shape, (_BATCH_SIZE, _EMBEDDING_DIM))
+	def test_output_shapes(self):
+		net = architectures.SimpleConvolutionNet(
+			dropout_rate=_DROPOUT_RATE,
+			l2_penalty=_L2_PENALTY,
+			embedding_dim=_EMBEDDING_DIM)
+		y, z = net(self._inputs)
+		self.assertEqual(y.shape, (_BATCH_SIZE, 1))
+		self.assertEqual(z.shape, (_BATCH_SIZE, _EMBEDDING_DIM))
 
 
 if __name__ == '__main__':
-  absltest.main()
+	absltest.main()

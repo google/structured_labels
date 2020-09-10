@@ -25,16 +25,16 @@ _BATCH_SIZE = 10
 
 class LossesTest(absltest.TestCase):
 
-  def setUp(self):
-    super(LossesTest, self).setUp()
-    self._embeddings = tf.ones([_BATCH_SIZE, _EMBEDDING_SIZE])
-    self._labels = tf.keras.backend.random_bernoulli(
-        shape=(_BATCH_SIZE, 1), p=0.5, seed=0)
+	def setUp(self):
+		super(LossesTest, self).setUp()
+		self._embeddings = tf.ones([_BATCH_SIZE, _EMBEDDING_SIZE])
+		self._labels = tf.keras.backend.random_bernoulli(
+			shape=(_BATCH_SIZE, 1), p=0.5, seed=0)
 
-  def test_identical_embed_mmd(self):
-    mmd_val = losses.mmd_loss(self._embeddings, self._labels, sigma=1.0)
-    self.assertEqual(mmd_val, 0)
+	def test_identical_embed_mmd(self):
+		mmd_val = losses.mmd_loss(self._embeddings, self._labels, sigma=1.0)
+		self.assertEqual(mmd_val, 0)
 
 
 if __name__ == '__main__':
-  absltest.main()
+	absltest.main()
