@@ -81,17 +81,17 @@ def corrupt_mnist(x, y, py1_y0, pflip0=.1, pflip1=.1, npix=5, rng=None):
 	y0 = y0_true.copy()
 	if pflip0 > 0:
 		flips = rng.choice(
-				range(y0.shape[0]), size=int(pflip0 * y0.shape[0]), replace=False)
+			range(y0.shape[0]), size=int(pflip0 * y0.shape[0]), replace=False)
 		y0[flips] = 1 - y0[flips]
 
 	if ((py1_y0) == 0 or (py1_y0 == 1)):
 		y1 = y0_true * py1_y0 + (1 - y0_true) * (1 - py1_y0)
 	else:
 		y1 = rng.binomial(
-				1, y0_true * py1_y0 + (1 - y0_true) * (1 - py1_y0), size=y0_true.shape)
+			1, y0_true * py1_y0 + (1 - y0_true) * (1 - py1_y0), size=y0_true.shape)
 	if pflip1 > 0:
 		flips = rng.choice(
-				range(y0.shape[0]), size=int(pflip1 * y0.shape[0]), replace=False)
+			range(y0.shape[0]), size=int(pflip1 * y0.shape[0]), replace=False)
 		y0[flips] = 1 - y0[flips]
 	xc = [color_corrupt_img(img, y=lab, npix=npix) for img, lab in zip(x, y1)]
 	xc = np.stack(xc, axis=0)

@@ -39,41 +39,53 @@ flags.DEFINE_enum('exp_name', 'correlation', ['correlation', 'overlap'],
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'cmnist'))
-MODELS = ['slabs', 'simple_baseline']
+MODELS = ['slabs', 'opslabs', 'simple_baseline']
 NUM_WORKERS = 10
 X_AXIS_VAR = 'py1_y0_s'
 
-GREEN = '#2ca02c'
-RED = '#d62728'
+MODEL_TO_PLOT_SPECS = {
+	'slabs': {'color': '#ff7f0e', 'label': 'SLABS (ours)'},
+	'opslabs': {'color': '#d62728', 'label': 'OP-SLABS (ours)'},
+	'simple_baseline': {'color': '#2ca02c', 'label': 'Simple baseline'},
+}
 
 
-def plot_errorbars_same_and_shifted(axis, model_results, metric, color):
+def plot_errorbars_same_and_shifted(axis,
+																		legend_elements,
+																		results,
+																		model,
+																		metric):
 	"""Plots results for same and shifted test distributions.
 
 	Args:
 		axis: matplotlib plot axis
-		model_results: pandas dataframe with results for a given model. Must have
-			mean and std for the same and shifted distributions for the required
-			metric
+		legend_elements: list of legend elements to append to if
+			None, no legend key is added for this model
+		results: pandas dataframe with all models' results
+		model: model to plot
 		metric: metric to plot, one of loss or acc
-		color: color for plotting
 
 	Returns:
 		None. Just adds the errorbars to an existing plot.
 	"""
 	# TODO x-axis variable
+	model_results = results[(results.model == model)]
 	axis.errorbar(
 		model_results.py1_y0_s,
 		model_results[f'shift_distribution_{metric}_mean'],
 		yerr=model_results[f'shift_distribution_{metric}_std'],
-		color=color)
+		color=MODEL_TO_PLOT_SPECS[model]['color'])
 
 	axis.errorbar(
 		model_results.py1_y0_s,
 		model_results[f'same_distribution_{metric}_mean'],
 		yerr=model_results[f'same_distribution_{metric}_std'],
-		color=color,
+		color=MODEL_TO_PLOT_SPECS[model]['color'],
 		linestyle='--')
+	model_legend_entry = Patch(facecolor=MODEL_TO_PLOT_SPECS[model]['color'],
+		label=MODEL_TO_PLOT_SPECS[model]['label'])
+	if legend_elements is not None:
+		legend_elements.append(model_legend_entry)
 
 
 def import_helper(args):
@@ -113,7 +125,7 @@ def main(argv):
 	all_config = []
 	for model in MODELS:
 		all_config.extend([(model, config) for config in configurator.get_sweep
-			(FLAGS.exp_name, model)][:10])
+			(FLAGS.exp_name, model)])
 
 	pool = Pool(NUM_WORKERS)
 	res = []
@@ -160,8 +172,6 @@ def main(argv):
 		X_AXIS_VAR])['validation_loss_mean'].transform(min) == res[
 		'validation_loss_mean']
 	res_min_loss = res[idx].copy().reset_index(drop=True)
-	res_slabs = res_min_loss[(res_min_loss.model == 'slabs')]
-	res_simple_baseline = res_min_loss[(res_min_loss.model == 'simple_baseline')]
 
 	_, axes = plt.subplots(1, 2, figsize=(14, 5))
 	legend_elements = [
@@ -170,17 +180,14 @@ def main(argv):
 			lw=3,
 			linestyle='--',
 			label='Same distribution'),
-		Line2D([0], [0], color='black', lw=3, label='Shifted distribution'),
-		Patch(facecolor=RED, label='Ours'),
-		Patch(facecolor=GREEN, label='Baseline')
+		Line2D([0], [0], color='black', lw=3, label='Shifted distribution')
 	]
 
-	plot_errorbars_same_and_shifted(axes[0], res_slabs, 'accuracy', RED)
-	plot_errorbars_same_and_shifted(axes[0], res_simple_baseline, 'accuracy',
-		GREEN)
-
-	plot_errorbars_same_and_shifted(axes[1], res_slabs, 'loss', RED)
-	plot_errorbars_same_and_shifted(axes[1], res_simple_baseline, 'loss', GREEN)
+	for model in MODELS:
+		plot_errorbars_same_and_shifted(axes[0], legend_elements, res_min_loss,
+			model, 'accuracy')
+		plot_errorbars_same_and_shifted(axes[1], None, res_min_loss,
+			model, 'loss')
 
 	axes[0].set_xlabel('Conditional probability in shifted distribution')
 	axes[0].set_ylabel('Accuracy')

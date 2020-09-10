@@ -14,23 +14,30 @@
 
 """Runs the full correlation sweep for the corrupted mnist experiment."""
 
+from functools import partial
 import hashlib
 from subprocess import call
 from multiprocessing import Pool
 import os
+
+from argparse import ArgumentParser
 import pickle
 import tqdm
+
 from cmnist import configurator
 
-N_TRIALS = 10
-EXP_NAME = 'correlation'
-MODEL_TO_TUNE = 'simple_baseline'
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'cmnist'))
-NUM_WORKERS = 5
-OVERRIDE = True
 
-def runner(config):
+
+def config_hasher(config, base_dir):
+	config_string = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
+	hash_string = hashlib.sha256(config_string.encode()).hexdigest()
+	hash_dir = os.path.join(base_dir, hash_string)
+	return hash_dir
+
+
+def runner(config, overwrite):
 	"""Trains model in config if not trained before.
 	Args:
 		config: dict with config
@@ -41,7 +48,7 @@ def runner(config):
 	hash_string = hashlib.sha256(config_string.encode()).hexdigest()
 	hash_dir = os.path.join(BASE_DIR, 'tuning', hash_string)
 	performance_file = os.path.join(hash_dir, 'performance.pkl')
-	if os.path.isfile(performance_file) and not OVERRIDE:
+	if os.path.isfile(performance_file) and not overwrite:
 		print("Tried this config, skipping")
 		return None
 	if not os.path.exists(hash_dir):
@@ -54,18 +61,53 @@ def runner(config):
 	pickle.dump(config, open(os.path.join(hash_dir, 'config.pkl'), 'wb'))
 
 
-if __name__ == '__main__':
-
-	all_config = configurator.get_sweep(EXP_NAME, MODEL_TO_TUNE)
+def main(experiment_name, model_to_tune, num_trials, num_workers, overwrite):
+	all_config = configurator.get_sweep(experiment_name, model_to_tune)
 
 	# TODO: random sample instead of first N
-	all_config = all_config[:N_TRIALS]
+	# TODO: exclude the ones that were already tried
+	all_config = all_config[:num_trials]
+	runner_wrapper = partial(runner, overwrite=overwrite)
 
-	if NUM_WORKERS > 1:
-		pool = Pool(NUM_WORKERS)
-		for _ in tqdm.tqdm(pool.imap_unordered(runner, all_config),
+	if num_workers > 1:
+		pool = Pool(num_workers)
+		for _ in tqdm.tqdm(pool.imap_unordered(runner_wrapper, all_config),
 			total=len(all_config)):
 			pass
 	else:
 		for config in all_config:
-			runner(config)
+			runner(config, overwrite)
+
+
+if __name__ == "__main__":
+	parser = ArgumentParser()
+
+	parser.add_argument('--experiment_name', '-experiment_name',
+		default='correlation',
+		choices=['correlation', 'overlap'],
+		help="Which experiment to run",
+		type=str)
+
+	parser.add_argument('--model_to_tune', '-model_to_tune',
+		default='slabs',
+		choices=['slabs', 'opslabs', 'simple_baseline'],
+		help="Which model to tune",
+		type=str)
+
+	parser.add_argument('--num_trials', '-num_trials',
+		default=20,
+		help="Number of hyperparameters to try",
+		type=int)
+
+	parser.add_argument('--num_workers', '-num_workers',
+		default=20,
+		help="Number of workers to run in parallel",
+		type=int)
+
+	parser.add_argument('--overwrite', '-overwrite',
+		default=False,
+		help="If this config has been tested before, rerun?",
+		type=bool)
+
+	args = vars(parser.parse_args())
+	main(**args)

@@ -18,7 +18,7 @@ import collections
 
 
 def cmnist_correlations_slabs():
-	"""Creates hyperparameters for main mnist experiment for SLABS (our) model.
+	"""Creates hyperparameters for correlations experiment for SLABS model.
 
 	Returns:
 		Iterator with all hyperparameter combinations
@@ -40,9 +40,33 @@ def cmnist_correlations_slabs():
 	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
 	return sweep
 
+def cmnist_correlations_opslabs():
+	"""Creates hyperparameters for correlations experiment for
+		overparameterized SLABS (our) model.
+
+	Returns:
+		Iterator with all hyperparameter combinations
+	"""
+	param_dict = {
+		'random_seed': [int(i) for i in range(2)],
+		'pflip0': [0.05],
+		'pflip1': [0.05],
+		'l2_penalty': [0.0],
+		'dropout_rate': [0.0],
+		'embedding_dim': [1000],
+		'py1_y0_s': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+		'sigma': [0.1, 1.0, 10.0, 100.0],
+		'alpha': [1.0, 10.0, 100.0, 1e5, 1e10]
+	}
+
+	param_dict = collections.OrderedDict(sorted(param_dict.items()))
+	keys, values = zip(*param_dict.items())
+	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
+	return sweep
+
 
 def cmnist_correlations_simple_baseline():
-	"""Creates hyperparameters for the main mnist experiment for baseline.
+	"""Creates hyperparameters for the correlations experiment for baseline.
 
 	Returns:
 		Iterator with all hyperparameter combinations
@@ -66,7 +90,7 @@ def cmnist_correlations_simple_baseline():
 
 
 def cmnist_no_overlap_slabs():
-	"""Creates hyperparameters for overlap mnist experiment for SLABS (our) model.
+	"""Creates hyperparameters for overlap experiment for SLABS model.
 
 	Returns:
 		Iterator with all hyperparameter combinations
@@ -90,7 +114,7 @@ def cmnist_no_overlap_slabs():
 
 
 def cmnist_no_overlap_simple_baseline():
-	"""Creates hyperparameters for the overlap cmnist experiment for baseline.
+	"""Creates hyperparameters for overlap experiment for baseline.
 
 	Returns:
 		Iterator with all hyperparameter combinations
@@ -126,12 +150,14 @@ def get_sweep(experiment, model):
 	if experiment not in ['correlation', 'overlap']:
 		raise NotImplementedError((f'Experiment {experiment} parameter'
 															' configuration not implemented'))
-	if model not in ['slabs', 'simple_baseline']:
+	if model not in ['slabs', 'opslabs', 'simple_baseline']:
 		raise NotImplementedError((f'Model {model} parameter configuration'
-															'not implemented'))
+															' not implemented'))
 
 	if experiment == 'correlation' and model == 'slabs':
 		return cmnist_correlations_slabs()
+	if experiment == 'correlation' and model == 'opslabs':
+		return cmnist_correlations_opslabs()
 	if experiment == 'correlation' and model == 'simple_baseline':
 		return cmnist_correlations_simple_baseline()
 	if experiment == 'overlap' and model == 'slabs':
