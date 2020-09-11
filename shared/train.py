@@ -152,8 +152,6 @@ def train(exp_dir,
 					random_seed,
 					cleanup):
 	"""Trains the estimator."""
-	# Delete the output directory if it already exists.
-	cleanup_directory(exp_dir)
 
 	if not os.path.exists(exp_dir):
 		os.mkdir(exp_dir)
@@ -170,7 +168,9 @@ def train(exp_dir,
 	}
 
 	run_config = tf.estimator.RunConfig(
-		tf_random_seed=random_seed, keep_checkpoint_max=2)
+		tf_random_seed=random_seed,
+		save_checkpoints_secs=300,
+		keep_checkpoint_max=2)
 
 	est = tf.estimator.Estimator(
 		model_fn, model_dir=exp_dir, params=params, config=run_config)

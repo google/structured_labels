@@ -16,9 +16,10 @@
 Script collects results from different experiment settings and different models
 then produces the main plot.
 """
-import hashlib
+
+import itertools
 import logging
-from multiprocessing import Pool
+import multiprocessing
 import os
 import pickle
 
@@ -30,6 +31,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import tqdm
 
+from shared.utils import config_hasher, tried_config
 from cmnist import configurator
 
 
@@ -105,8 +107,7 @@ def import_helper(args):
 	"""
 	# TODO update docstring
 	model, config = args
-	config_string = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
-	hash_string = hashlib.sha256(config_string.encode()).hexdigest()
+	hash_string = config_hasher(config)
 	hash_dir = os.path.join(BASE_DIR, 'tuning', hash_string)
 	performance_file = os.path.join(hash_dir, 'performance.pkl')
 
@@ -124,10 +125,13 @@ def main(argv):
 	del argv
 	all_config = []
 	for model in MODELS:
-		all_config.extend([(model, config) for config in configurator.get_sweep
-			(FLAGS.exp_name, model)])
+		model_configs = configurator.get_sweep(FLAGS.exp_name, model)
+		available_configs = [tried_config(config, base_dir=BASE_DIR) for config
+														in model_configs]
+		model_configs = list(itertools.compress(model_configs, available_configs))
+		all_config.extend([(model, config) for config in model_configs])
 
-	pool = Pool(NUM_WORKERS)
+	pool = multiprocessing.Pool(NUM_WORKERS)
 	res = []
 	for config_res in tqdm.tqdm(pool.imap_unordered(import_helper, all_config),
 		total=len(all_config)):

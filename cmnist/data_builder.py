@@ -75,7 +75,7 @@ def corrupt_mnist(x, y, py1_y0, pflip0=.1, pflip1=.1, npix=5, rng=None):
 		rng = np.random.RandomState(0)
 
 	keep = (y == 3) | (y == 4)
-	x, y = x[keep], y[keep]
+	x, y = x[keep].copy(), y[keep].copy()
 	y0_true = ((y == 3)) * 1
 
 	y0 = y0_true.copy()
@@ -84,7 +84,7 @@ def corrupt_mnist(x, y, py1_y0, pflip0=.1, pflip1=.1, npix=5, rng=None):
 			range(y0.shape[0]), size=int(pflip0 * y0.shape[0]), replace=False)
 		y0[flips] = 1 - y0[flips]
 
-	if ((py1_y0) == 0 or (py1_y0 == 1)):
+	if py1_y0 in [0, 1]:
 		y1 = y0_true * py1_y0 + (1 - y0_true) * (1 - py1_y0)
 	else:
 		y1 = rng.binomial(
@@ -109,15 +109,18 @@ def get_corrupt_minst(p_tr=.7,
 											pflip0=.1,
 											pflip1=.1,
 											npix=5,
+											oracle_prop=0.0,
 											random_seed=None):
 	"""Gets train, vald, test data.
 
 	Args:
-		p_tr: scalar, proportion of train data used for training (vs vald)
-		py1_y0: scalar, probability of y1=1 | y0 for the main dist
-		py1_y0_s: scalar, probability of y1=1 | y0 for shifted dist
-		pflip0: scalar, probability of flipping y0 label
-		pflip1: scalar, probability of flipping y1 label
+		p_tr: float, proportion of train data used for training (vs vald)
+		py1_y0: float, probability of y1=1 | y0 for the main dist
+		py1_y0_s: float, probability of y1=1 | y0 for shifted dist
+		pflip0: float, probability of flipping y0 label
+		pflip1: float, probability of flipping y1 label
+		oracle_prop: float, proportion (relative to training size) to add
+			as oracle augmentation
 		npix: number of pixels to corrupt
 		random_seed: seed for numpy.random.RandomState
 
@@ -129,21 +132,45 @@ def get_corrupt_minst(p_tr=.7,
 	else:
 		rng = np.random.RandomState(random_seed)
 
-	(x_train_valid,
-		y_train_valid), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
-	x_train_valid, x_test = x_train_valid[..., np.newaxis] / 255.0, x_test[
+	(x_train_valid_or,
+		y_train_valid_or), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
+	x_train_valid_or, x_test = x_train_valid_or[..., np.newaxis] / 255.0, x_test[
 		..., np.newaxis] / 255.0
 
 	# get training and validation data sampled according to observation
 	# distribution
 	x_train_valid, y_train_valid = corrupt_mnist(
-		x_train_valid,
-		y_train_valid,
+		x_train_valid_or,
+		y_train_valid_or,
 		py1_y0=py1_y0,
 		pflip0=pflip0,
 		pflip1=pflip1,
 		npix=npix,
 		rng=rng)
+
+	if oracle_prop > 0:
+		x_train_valid_aug, y_train_valid_aug = corrupt_mnist(
+			x_train_valid_or,
+			y_train_valid_or,
+			py1_y0=py1_y0_s,
+			pflip0=pflip0,
+			pflip1=pflip1,
+			npix=npix,
+			rng=rng)
+
+		augmentation_samples = np.random.choice(x_train_valid.shape[0],
+			size=int(oracle_prop * x_train_valid.shape[0]), replace=False).tolist()
+
+		x_train_valid_aug = x_train_valid_aug[augmentation_samples, :, :]
+		y_train_valid_aug = y_train_valid_aug[augmentation_samples]
+
+		x_train_valid = np.concatenate([x_train_valid, x_train_valid_aug], axis=0)
+		y_train_valid = np.concatenate([y_train_valid, y_train_valid_aug], axis=0)
+
+		shuffle_ids = np.random.choice(x_train_valid.shape[0],
+			size=x_train_valid.shape[0], replace=False).tolist()
+		x_train_valid = x_train_valid[shuffle_ids, :, :]
+		y_train_valid = y_train_valid[shuffle_ids, :]
 
 	# split into separate training and testing
 	train_ind = rng.choice(
@@ -186,6 +213,7 @@ def build_input_fns(p_tr=.7,
 										pflip0=.1,
 										pflip1=.1,
 										npix=5,
+										oracle_prop=0.0,
 										random_seed=None):
 	"""Builds datasets for train, eval, and test.
 
@@ -196,6 +224,8 @@ def build_input_fns(p_tr=.7,
 		pflip0: scalar, probability of flipping y0 label
 		pflip1: scalar, probability of flipping y1 label
 		npix: number of pixels to corrupt
+		oracle_prop: float, proportion (relative to training size) to add
+			as oracle augmentation
 		random_seed: seed for numpy.random.RandomState
 
 	Returns:
@@ -209,6 +239,7 @@ def build_input_fns(p_tr=.7,
 		pflip0=pflip0,
 		pflip1=pflip1,
 		npix=npix,
+		oracle_prop=oracle_prop,
 		random_seed=random_seed)
 	train_data, valid_data, same_test_data, shifted_test_data = all_data
 

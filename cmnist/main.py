@@ -27,6 +27,9 @@ flags.DEFINE_float('py1_y0_s', .5, '(shifted) probability of y1 =1 | y0 = 1.')
 flags.DEFINE_float('pflip0', .1, 'proportion of y0 randomly flipped (noise).')
 flags.DEFINE_float('pflip1', 0.0, 'proportion of y1 randomly flipped (noise).')
 flags.DEFINE_integer('npix', 20, 'number of pixels to corrupt.')
+flags.DEFINE_float('oracle_prop', 0.0,
+										'proportion of training data to use for oracle augmentation.')
+
 
 flags.DEFINE_string('exp_dir', '/data/ddmg/slabs/',
 										'Directory to save trained model in.')
@@ -42,7 +45,7 @@ flags.DEFINE_float('l2_penalty', 0.0,
 flags.DEFINE_integer('embedding_dim', 1000,
 										'Dimension for the final embedding.')
 flags.DEFINE_integer('random_seed', 0, 'random seed for tensorflow estimator')
-flags.DEFINE_boolean('cleanup', True,
+flags.DEFINE_boolean('cleanup', False,
 		'remove tensorflow artifacts after training to reduce memory usage.')
 
 
@@ -57,7 +60,8 @@ def main(argv):
 			py1_y0_s=FLAGS.py1_y0_s,
 			pflip0=FLAGS.pflip0,
 			pflip1=FLAGS.pflip1,
-			npix=FLAGS.npix)
+			npix=FLAGS.npix,
+			oracle_prop=FLAGS.oracle_prop)
 
 	train.train(
 		exp_dir=FLAGS.exp_dir,

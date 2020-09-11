@@ -24,7 +24,7 @@ def cmnist_correlations_slabs():
 		Iterator with all hyperparameter combinations
 	"""
 	param_dict = {
-		'random_seed': [int(i) for i in range(10)],
+		'random_seed': [int(i) for i in range(2)],
 		'pflip0': [0.05],
 		'pflip1': [0.05],
 		'l2_penalty': [0.0, 0.1, 1.0, 10.0, 100.0],
@@ -48,7 +48,7 @@ def cmnist_correlations_opslabs():
 		Iterator with all hyperparameter combinations
 	"""
 	param_dict = {
-		'random_seed': [int(i) for i in range(10)],
+		'random_seed': [int(i) for i in range(2)],
 		'pflip0': [0.05],
 		'pflip1': [0.05],
 		'l2_penalty': [0.0],
@@ -72,7 +72,7 @@ def cmnist_correlations_simple_baseline():
 		Iterator with all hyperparameter combinations
 	"""
 	param_dict = {
-		'random_seed': [int(i) for i in range(10)],
+		'random_seed': [int(i) for i in range(2)],
 		'pflip0': [0.05],
 		'pflip1': [0.05],
 		'l2_penalty': [0.0, 0.1, 1.0, 10.0, 100.0],

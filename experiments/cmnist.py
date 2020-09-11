@@ -13,50 +13,26 @@
 # limitations under the License.
 
 """Runs the full correlation sweep for the corrupted mnist experiment."""
-
-import hashlib
-from itertools import compress
-from subprocess import call
-from multiprocessing import Pool
-import numpy as np
+import functools
+import itertools
+import subprocess
+import multiprocessing
 import os
-
-
-from argparse import ArgumentParser
 import pickle
+
+import argparse
+import numpy as np
 import tqdm
 
+from shared.utils import config_hasher, tried_config
 from cmnist import configurator
+
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'cmnist'))
 
 
-def config_hasher(config):
-	"""Generates hash string for a given config.
-	Args:
-		config: dict with hyperparams ordered by key
-	Returns:
-		hash of config
-	"""
-	config_string = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
-	hash_string = hashlib.sha256(config_string.encode()).hexdigest()
-	return hash_string
-
-
-def tried_config(config, base_dir):
-	"""Tests if config has been tried before.
-	Args:
-		config: hyperparam config
-		base_dir: directory where the tuning folder lives
-	"""
-	hash_string = config_hasher(config)
-	hash_dir = os.path.join(base_dir, 'tuning', hash_string)
-	performance_file = os.path.join(hash_dir, 'performance.pkl')
-	return os.path.isfile(performance_file)
-
-
-def runner(config):
+def runner(config,overwrite):
 	"""Trains model in config if not trained before.
 	Args:
 		config: dict with config
@@ -65,12 +41,16 @@ def runner(config):
 	"""
 	hash_string = config_hasher(config)
 	hash_dir = os.path.join(BASE_DIR, 'tuning', hash_string)
+	if (not overwrite) and tried_config(config, BASE_DIR):
+		return None
 	if not os.path.exists(hash_dir):
 		os.system(f'mkdir -p {hash_dir}')
 	config['exp_dir'] = hash_dir
+	config['cleanup'] = True
 	flags = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
-	call('python -m cmnist.main %s > /dev/null 2>&1' % flags, shell=True)
-	# call('python -m cmnist.main %s' % flags, shell=True)
+	subprocess.call('python -m cmnist.main %s > /dev/null 2>&1' % flags,
+		shell=True)
+	# subprocess.call('python -m cmnist.main %s' % flags, shell=True)
 	config.pop('exp_dir')
 	pickle.dump(config, open(os.path.join(hash_dir, 'config.pkl'), 'wb'))
 
@@ -89,31 +69,33 @@ def main(experiment_name, model_to_tune, num_trials, num_workers, overwrite):
 			nothing
 	"""
 	all_config = configurator.get_sweep(experiment_name, model_to_tune)
+	print(f'All configs are {len(all_config)}')
 	if not overwrite:
 		configs_to_consider = [not tried_config(config, base_dir=BASE_DIR) for config
 												in all_config]
-		all_config = list(compress(all_config, configs_to_consider))
+		all_config = list(itertools.compress(all_config, configs_to_consider))
 
 	if num_trials < len(all_config):
 		configs_to_run = np.random.choice(len(all_config), size=num_trials,
 			replace=False).tolist()
 		configs_to_run = [config_id in configs_to_run for config_id in
 			range(len(all_config))]
-		all_config = list(compress(all_config, configs_to_run))
+		all_config = list(itertools.compress(all_config, configs_to_run))
 
 	assert len(all_config) <= num_trials
 	if num_workers > 1:
-		pool = Pool(num_workers)
-		for _ in tqdm.tqdm(pool.imap_unordered(runner, all_config),
+		runner_wrapper = functools.partial(runner, overwrite=overwrite)
+		pool = multiprocessing.Pool(num_workers)
+		for _ in tqdm.tqdm(pool.imap_unordered(runner_wrapper, all_config),
 			total=len(all_config)):
 			pass
 	else:
 		for config in all_config:
-			runner(config)
+			runner(config,overwrite)
 
 
 if __name__ == "__main__":
-	parser = ArgumentParser()
+	parser = argparse.ArgumentParser()
 
 	parser.add_argument('--experiment_name', '-experiment_name',
 		default='correlation',
@@ -123,12 +105,12 @@ if __name__ == "__main__":
 
 	parser.add_argument('--model_to_tune', '-model_to_tune',
 		default='slabs',
-		choices=['slabs', 'opslabs', 'simple_baseline'],
+		choices=['slabs', 'opslabs', 'simple_baseline', 'oracle_aug'],
 		help="Which model to tune",
 		type=str)
 
 	parser.add_argument('--num_trials', '-num_trials',
-		default=5000,
+		default=1000,
 		help="Number of hyperparameters to try",
 		type=int)
 
