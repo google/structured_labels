@@ -32,7 +32,7 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'cmnist'))
 
 
-def runner(config,overwrite):
+def runner(config, overwrite):
 	"""Trains model in config if not trained before.
 	Args:
 		config: dict with config
@@ -52,14 +52,22 @@ def runner(config,overwrite):
 		shell=True)
 	# subprocess.call('python -m cmnist.main %s' % flags, shell=True)
 	config.pop('exp_dir')
+	config.pop('cleanup')
 	pickle.dump(config, open(os.path.join(hash_dir, 'config.pkl'), 'wb'))
 
 
-def main(experiment_name, model_to_tune, num_trials, num_workers, overwrite):
+def main(experiment_name,
+					model_to_tune,
+					aug_prop,
+					num_trials,
+					num_workers,
+					overwrite):
 	"""Main function to tune/train the model.
 	Args:
 		experiment_name: str, name of the experiemnt to run
 		model_to_tune: str, which model to tune/train
+		aug_prop: float, proportion to use for training augmentation. Only relevant
+				if model_to_tune is [something]_aug
 		num_trials: int, number of hyperparams to train for
 		num_workers: int, number of workers to run in parallel
 		overwrite: bool, whether or not to retrain if a specific hyperparam config
@@ -68,7 +76,7 @@ def main(experiment_name, model_to_tune, num_trials, num_workers, overwrite):
 		Returns:
 			nothing
 	"""
-	all_config = configurator.get_sweep(experiment_name, model_to_tune)
+	all_config = configurator.get_sweep(experiment_name, model_to_tune, aug_prop)
 	print(f'All configs are {len(all_config)}')
 	if not overwrite:
 		configs_to_consider = [not tried_config(config, base_dir=BASE_DIR) for config
@@ -91,7 +99,7 @@ def main(experiment_name, model_to_tune, num_trials, num_workers, overwrite):
 			pass
 	else:
 		for config in all_config:
-			runner(config,overwrite)
+			runner(config, overwrite)
 
 
 if __name__ == "__main__":
@@ -108,6 +116,12 @@ if __name__ == "__main__":
 		choices=['slabs', 'opslabs', 'simple_baseline', 'oracle_aug'],
 		help="Which model to tune",
 		type=str)
+
+	parser.add_argument('--aug_prop', '-aug_prop',
+		default=-1.1,
+		help=("Proportion of training data to use for augentation."
+					"Only relevant if model_to_tune is [something]_aug"),
+		type=float)
 
 	parser.add_argument('--num_trials', '-num_trials',
 		default=1000,
