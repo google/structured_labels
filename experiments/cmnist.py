@@ -24,7 +24,7 @@ import argparse
 import numpy as np
 import tqdm
 
-from shared.utils import config_hasher, tried_config
+from shared.utils import config_hasher, tried_config, get_gpu_assignment
 from cmnist import configurator
 
 
@@ -47,6 +47,8 @@ def runner(config, overwrite):
 		os.system(f'mkdir -p {hash_dir}')
 	config['exp_dir'] = hash_dir
 	config['cleanup'] = True
+	chosen_gpu = get_gpu_assignment()
+	config['gpuid'] = chosen_gpu
 	flags = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
 	subprocess.call('python -m cmnist.main %s > /dev/null 2>&1' % flags,
 		shell=True)
@@ -83,14 +85,14 @@ def main(experiment_name,
 												in all_config]
 		all_config = list(itertools.compress(all_config, configs_to_consider))
 
-	if num_trials < len(all_config):
-		configs_to_run = np.random.choice(len(all_config), size=num_trials,
-			replace=False).tolist()
-		configs_to_run = [config_id in configs_to_run for config_id in
-			range(len(all_config))]
-		all_config = list(itertools.compress(all_config, configs_to_run))
+	# if num_trials < len(all_config):
+	# 	configs_to_run = np.random.choice(len(all_config), size=num_trials,
+	# 		replace=False).tolist()
+	# 	configs_to_run = [config_id in configs_to_run for config_id in
+	# 		range(len(all_config))]
+	# 	all_config = list(itertools.compress(all_config, configs_to_run))
 
-	assert len(all_config) <= num_trials
+	# assert len(all_config) <= num_trials
 	if num_workers > 1:
 		runner_wrapper = functools.partial(runner, overwrite=overwrite)
 		pool = multiprocessing.Pool(num_workers)
@@ -129,7 +131,7 @@ if __name__ == "__main__":
 		type=int)
 
 	parser.add_argument('--num_workers', '-num_workers',
-		default=20,
+		default=5,
 		help="Number of workers to run in parallel",
 		type=int)
 

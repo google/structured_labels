@@ -19,6 +19,7 @@ from absl import flags
 
 from cmnist import data_builder
 from shared import train
+from shared.utils import restrict_GPU_tf
 
 FLAGS = flags.FLAGS
 flags.DEFINE_float('p_tr', .7, 'proportion of data used for training.')
@@ -47,6 +48,7 @@ flags.DEFINE_integer('embedding_dim', 1000,
 flags.DEFINE_integer('random_seed', 0, 'random seed for tensorflow estimator')
 flags.DEFINE_boolean('cleanup', False,
 		'remove tensorflow artifacts after training to reduce memory usage.')
+flags.DEFINE_string('gpuid', '0', 'Gpu id to run the model on.')
 
 
 def main(argv):
@@ -63,6 +65,7 @@ def main(argv):
 			npix=FLAGS.npix,
 			oracle_prop=FLAGS.oracle_prop)
 
+	restrict_GPU_tf(FLAGS.gpuid, memfrac=0.1)
 	train.train(
 		exp_dir=FLAGS.exp_dir,
 		dataset_builder=dataset_builder,

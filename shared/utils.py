@@ -17,6 +17,43 @@
 import hashlib
 import os
 
+import GPUtil
+import numpy as np
+import tensorflow as tf
+
+
+def restrict_GPU_tf(gpuid, memfrac=0, use_cpu=False):
+	""" Function to pick the gpu to run on
+		Args:
+			gpuid: str, comma separated list "0" or "0,1" or even "0,1,3"
+			memfrac: float, fraction of memory. By default grows dynamically
+	"""
+	if not use_cpu:
+		os.environ["CUDA_VISIBLE_DEVICES"] = gpuid
+
+		config = tf.compat.v1.ConfigProto()
+		if memfrac == 0:
+			config.gpu_options.allow_growth = True
+		else:
+			config.gpu_options.per_process_gpu_memory_fraction = memfrac
+		tf.compat.v1.Session(config=config)
+		print("Using GPU:{} with {:.0f}% of the memory".format(gpuid, memfrac * 100))
+	else:
+		os.environ["CUDA_VISIBLE_DEVICES"] = ""
+		os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+		print("Using CPU")
+
+
+def get_gpu_assignment():
+	GPUs = GPUtil.getGPUs()
+	gpu_probs = [1.0 - gpu.load if gpu.load > 0 else 1 for gpu in GPUs]
+	total_probs = sum(gpu_probs)
+	gpu_probs = [(gpu_prob / total_probs) for gpu_prob in gpu_probs]
+	gpu_ids = [gpu.id for gpu in GPUs]
+	chosen_gpu = np.random.choice(gpu_ids, p=gpu_probs, size=1)
+	return str(chosen_gpu[0])
+
 
 def config_hasher(config):
 	"""Generates hash string for a given config.
