@@ -6,6 +6,10 @@ __pycache__/
 # My scratch pad
 scratch_pad.sh
 
+# debugging notebooks 
+*.ipynb
+
+
 # C extensions
 *.so
 
