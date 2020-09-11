@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 
 # My scratch pad
-experiments/scratch_pad.sh
+scratch_pad.sh
 
 # C extensions
 *.so
