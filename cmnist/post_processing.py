@@ -41,7 +41,7 @@ flags.DEFINE_enum('exp_name', 'correlation', ['correlation', 'overlap'],
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'cmnist'))
-MODELS = ['slabs', 'opslabs', 'simple_baseline']
+MODELS = ['slabs', 'opslabs', 'simple_baseline', 'oracle_aug_0.1', 'oracle_aug_0.5']
 NUM_WORKERS = 10
 X_AXIS_VAR = 'py1_y0_s'
 
@@ -49,6 +49,8 @@ MODEL_TO_PLOT_SPECS = {
 	'slabs': {'color': '#ff7f0e', 'label': 'SLABS (ours)'},
 	'opslabs': {'color': '#d62728', 'label': 'OP-SLABS (ours)'},
 	'simple_baseline': {'color': '#2ca02c', 'label': 'Simple baseline'},
+	'oracle_aug_0.1': {'color': '#9467bd', 'label': 'Oracle aug (10%)'},
+	'oracle_aug_0.5': {'color': '#e377c2', 'label': 'Oracle aug (50%)'},
 }
 
 
@@ -94,18 +96,19 @@ def import_helper(args):
 	"""Imports the dictionary with the results of an experiment.
 
 	Args:
-		config: dictionary, expected to have the following: exp_dir, the experiment
-			directory random_seed,  random seed for the experiment py1_y0_s,
-			probability of y1=1| y0=1 in the shifted test distribution alpha,
-			MMD/cross prediction penalty sigma,  kernel bandwidth for the MMD penalty
-			l2_penalty,  regularization parameter dropout_rate,  drop out rate
-			embedding_dim,  dimension of the final representation/embedding
-			unused_kwargs, other key word args passed to xmanager but not needed here
+		args: tuple with model, config where
+			model: str, name of the model we're importing the performance of
+			config: dictionary, expected to have the following: exp_dir, the experiment
+				directory random_seed,  random seed for the experiment py1_y0_s,
+				probability of y1=1| y0=1 in the shifted test distribution alpha,
+				MMD/cross prediction penalty sigma,  kernel bandwidth for the MMD penalty
+				l2_penalty,  regularization parameter dropout_rate,  drop out rate
+				embedding_dim,  dimension of the final representation/embedding
+				unused_kwargs, other key word args passed to xmanager but not needed here
 
 	Returns:
 		pandas dataframe of results if the file was found, none otherwise
 	"""
-	# TODO update docstring
 	model, config = args
 	hash_string = config_hasher(config)
 	hash_dir = os.path.join(BASE_DIR, 'tuning', hash_string)

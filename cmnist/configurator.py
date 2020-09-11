@@ -13,8 +13,9 @@
 # limitations under the License.
 
 """Creates config dictionaries for different experiments and models."""
-import itertools
 import collections
+import itertools
+import re
 
 
 def cmnist_correlations_slabs():
@@ -39,6 +40,7 @@ def cmnist_correlations_slabs():
 	keys, values = zip(*param_dict.items())
 	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
 	return sweep
+
 
 def cmnist_correlations_opslabs():
 	"""Creates hyperparameters for correlations experiment for
@@ -113,6 +115,8 @@ def cmnist_correlations_oracle_aug(aug_prop):
 	keys, values = zip(*param_dict.items())
 	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
 	return sweep
+
+
 def cmnist_no_overlap_slabs():
 	"""Creates hyperparameters for overlap experiment for SLABS model.
 
@@ -173,13 +177,19 @@ def get_sweep(experiment, model, aug_prop=-1.0):
 	Returns:
 		Iterator with all hyperparameter combinations
 	"""
+	if model[:10] == "oracle_aug" and len(model) > 10:
+		match = re.match(r'.*(\_)', model)
+		start_pos = match.end(1)
+		aug_prop = float(model[start_pos:])
+		model = model[:10]
+
 	if experiment not in ['correlation', 'overlap']:
 		raise NotImplementedError((f'Experiment {experiment} parameter'
 															' configuration not implemented'))
 	if model not in ['slabs', 'opslabs', 'simple_baseline', 'oracle_aug']:
 		raise NotImplementedError((f'Model {model} parameter configuration'
 															' not implemented'))
-	if model in ['oracle_aug'] and aug_prop <0.0:
+	if model in ['oracle_aug'] and aug_prop < 0.0:
 		raise ValueError('Augmentation proportion is needed for augmentation'
 											' baselines')
 
