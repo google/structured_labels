@@ -45,7 +45,7 @@ def restrict_GPU_tf(gpuid, memfrac=0, use_cpu=False):
 		print("Using CPU")
 
 
-def get_gpu_assignment():
+def get_proportional_gpu_assignment():
 	GPUs = GPUtil.getGPUs()
 	gpu_probs = [1.0 - gpu.load if gpu.load > 0 else 1 for gpu in GPUs]
 	total_probs = sum(gpu_probs)
@@ -53,6 +53,19 @@ def get_gpu_assignment():
 	gpu_ids = [gpu.id for gpu in GPUs]
 	chosen_gpu = np.random.choice(gpu_ids, p=gpu_probs, size=1)
 	return str(chosen_gpu[0])
+
+
+def get_random_gpu_assignment():
+	GPUs = GPUtil.getGPUs()
+	eligible_gpus = [gpu.id for gpu in GPUs if gpu.load < 0.7]
+	chosen_gpu = np.random.choice(eligible_gpus, size=1)
+	return str(chosen_gpu[0])
+
+
+def get_gpu_assignment(proportional=False):
+	if proportional:
+		return get_proportional_gpu_assignment()
+	return get_random_gpu_assignment()
 
 
 def config_hasher(config):
