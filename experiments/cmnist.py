@@ -21,15 +21,22 @@ import os
 import pickle
 
 import argparse
-import numpy as np
+import numpy as np  # noqa: F401
 import tqdm
 
-from shared.utils import config_hasher, tried_config, get_gpu_assignment
+from shared.utils import config_hasher, tried_config
 from cmnist import configurator
 
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'cmnist'))
+NUM_GPUS = 4
+PROC_PER_GPU = 3
+
+QUEUE = multiprocessing.Queue()
+for gpu_ids in range(NUM_GPUS):
+	for _ in range(PROC_PER_GPU):
+		QUEUE.put(str(gpu_ids))
 
 
 def runner(config, overwrite):
@@ -39,30 +46,33 @@ def runner(config, overwrite):
 	Returns:
 		Nothing
 	"""
-	hash_string = config_hasher(config)
-	hash_dir = os.path.join(BASE_DIR, 'tuning', hash_string)
-	if (not overwrite) and tried_config(config, BASE_DIR):
-		return None
-	if not os.path.exists(hash_dir):
-		os.system(f'mkdir -p {hash_dir}')
-	config['exp_dir'] = hash_dir
-	config['cleanup'] = True
-	chosen_gpu = get_gpu_assignment()
-	config['gpuid'] = chosen_gpu
-	flags = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
-	subprocess.call('python -m cmnist.main %s > /dev/null 2>&1' % flags,
-		shell=True)
-	# subprocess.call('python -m cmnist.main %s' % flags, shell=True)
-	config.pop('exp_dir')
-	config.pop('cleanup')
-	pickle.dump(config, open(os.path.join(hash_dir, 'config.pkl'), 'wb'))
+	try:
+		hash_string = config_hasher(config)
+		hash_dir = os.path.join(BASE_DIR, 'tuning', hash_string)
+		if (not overwrite) and tried_config(config, BASE_DIR):
+			return None
+		if not os.path.exists(hash_dir):
+			os.system(f'mkdir -p {hash_dir}')
+		config['exp_dir'] = hash_dir
+		config['cleanup'] = True
+		# chosen_gpu = get_gpu_assignment()
+		chosen_gpu = QUEUE.get()
+		config['gpuid'] = chosen_gpu
+		flags = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
+		subprocess.call('python -m cmnist.main %s > /dev/null 2>&1' % flags,
+			shell=True)
+		# subprocess.call('python -m cmnist.main %s' % flags, shell=True)
+		config.pop('exp_dir')
+		config.pop('cleanup')
+		pickle.dump(config, open(os.path.join(hash_dir, 'config.pkl'), 'wb'))
+	finally:
+		QUEUE.put(chosen_gpu)
 
 
 def main(experiment_name,
 					model_to_tune,
 					aug_prop,
 					num_trials,
-					num_workers,
 					overwrite):
 	"""Main function to tune/train the model.
 	Args:
@@ -85,23 +95,18 @@ def main(experiment_name,
 												in all_config]
 		all_config = list(itertools.compress(all_config, configs_to_consider))
 
-	# if num_trials < len(all_config):
-	# 	configs_to_run = np.random.choice(len(all_config), size=num_trials,
-	# 		replace=False).tolist()
-	# 	configs_to_run = [config_id in configs_to_run for config_id in
-	# 		range(len(all_config))]
-	# 	all_config = list(itertools.compress(all_config, configs_to_run))
+	if num_trials < len(all_config):
+		configs_to_run = np.random.choice(len(all_config), size=num_trials,
+			replace=False).tolist()
+		configs_to_run = [config_id in configs_to_run for config_id in
+			range(len(all_config))]
+		all_config = list(itertools.compress(all_config, configs_to_run))
 
-	# assert len(all_config) <= num_trials
-	if num_workers > 1:
-		runner_wrapper = functools.partial(runner, overwrite=overwrite)
-		pool = multiprocessing.Pool(num_workers)
-		for _ in tqdm.tqdm(pool.imap_unordered(runner_wrapper, all_config),
-			total=len(all_config)):
-			pass
-	else:
-		for config in all_config:
-			runner(config, overwrite)
+	pool = multiprocessing.Pool(NUM_GPUS * PROC_PER_GPU)
+	runner_wrapper = functools.partial(runner, overwrite=overwrite)
+	for _ in tqdm.tqdm(pool.imap_unordered(runner_wrapper, all_config),
+		total=len(all_config)):
+		pass
 
 
 if __name__ == "__main__":
@@ -126,13 +131,8 @@ if __name__ == "__main__":
 		type=float)
 
 	parser.add_argument('--num_trials', '-num_trials',
-		default=1000,
+		default=1e6,
 		help="Number of hyperparameters to try",
-		type=int)
-
-	parser.add_argument('--num_workers', '-num_workers',
-		default=5,
-		help="Number of workers to run in parallel",
 		type=int)
 
 	parser.add_argument('--overwrite', '-overwrite',
