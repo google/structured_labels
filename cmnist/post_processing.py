@@ -41,13 +41,13 @@ flags.DEFINE_enum('exp_name', 'correlation', ['correlation', 'overlap'],
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'cmnist'))
-MODELS = ['slabs', 'opslabs', 'simple_baseline', 'oracle_aug_0.1', 'oracle_aug_0.5']
-NUM_WORKERS = 10
+NUM_WORKERS = 30
 X_AXIS_VAR = 'py1_y0_s'
 
 MODEL_TO_PLOT_SPECS = {
 	'slabs': {'color': '#ff7f0e', 'label': 'SLABS (ours)'},
 	'opslabs': {'color': '#d62728', 'label': 'OP-SLABS (ours)'},
+	'weighted_opslabs': {'color': 'black', 'label': 'W-OP-SLABS (ours)'},
 	'simple_baseline': {'color': '#2ca02c', 'label': 'Simple baseline'},
 	'oracle_aug_0.1': {'color': '#9467bd', 'label': 'Oracle aug (10%)'},
 	'oracle_aug_0.5': {'color': '#e377c2', 'label': 'Oracle aug (50%)'},
@@ -127,7 +127,7 @@ def import_helper(args):
 def main(argv):
 	del argv
 	all_config = []
-	for model in MODELS:
+	for model in MODEL_TO_PLOT_SPECS.keys():
 		model_configs = configurator.get_sweep(FLAGS.exp_name, model)
 		available_configs = [tried_config(config, base_dir=BASE_DIR) for config
 														in model_configs]
@@ -190,7 +190,7 @@ def main(argv):
 		Line2D([0], [0], color='black', lw=3, label='Shifted distribution')
 	]
 
-	for model in MODELS:
+	for model in MODEL_TO_PLOT_SPECS.keys():
 		plot_errorbars_same_and_shifted(axes[0], legend_elements, res_min_loss,
 			model, 'accuracy')
 		plot_errorbars_same_and_shifted(axes[1], None, res_min_loss,

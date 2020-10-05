@@ -67,6 +67,32 @@ def cmnist_correlations_opslabs():
 	return sweep
 
 
+def cmnist_correlations_opslabs_weighted_mmd():
+	"""Creates hyperparameters for correlations experiment for
+		overparameterized SLABS (our) model.
+
+	Returns:
+		Iterator with all hyperparameter combinations
+	"""
+	param_dict = {
+		'random_seed': [int(i) for i in range(2)],
+		'pflip0': [0.05],
+		'pflip1': [0.05],
+		'l2_penalty': [0.0],
+		'dropout_rate': [0.0],
+		'embedding_dim': [1000],
+		'py1_y0_s': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+		'sigma': [0.1, 1.0, 10.0, 100.0],
+		'alpha': [1.0, 10.0, 100.0, 1e5, 1e10],
+		'weighted_mmd': [True]
+	}
+
+	param_dict = collections.OrderedDict(sorted(param_dict.items()))
+	keys, values = zip(*param_dict.items())
+	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
+	return sweep
+
+
 def cmnist_correlations_simple_baseline():
 	"""Creates hyperparameters for the correlations experiment for baseline.
 
@@ -177,16 +203,20 @@ def get_sweep(experiment, model, aug_prop=-1.0):
 	Returns:
 		Iterator with all hyperparameter combinations
 	"""
+	implemented_models = ['slabs', 'opslabs', 'weighted_opslabs',
+		'simple_baseline', 'oracle_aug']
+	implemented_experiments = ['correlation', 'overlap']
+
 	if model[:10] == "oracle_aug" and len(model) > 10:
 		match = re.match(r'.*(\_)', model)
 		start_pos = match.end(1)
 		aug_prop = float(model[start_pos:])
 		model = model[:10]
 
-	if experiment not in ['correlation', 'overlap']:
+	if experiment not in implemented_experiments:
 		raise NotImplementedError((f'Experiment {experiment} parameter'
 															' configuration not implemented'))
-	if model not in ['slabs', 'opslabs', 'simple_baseline', 'oracle_aug']:
+	if model not in implemented_models:
 		raise NotImplementedError((f'Model {model} parameter configuration'
 															' not implemented'))
 	if model in ['oracle_aug'] and aug_prop < 0.0:
@@ -197,6 +227,8 @@ def get_sweep(experiment, model, aug_prop=-1.0):
 		return cmnist_correlations_slabs()
 	if experiment == 'correlation' and model == 'opslabs':
 		return cmnist_correlations_opslabs()
+	if experiment == 'correlation' and model == 'weighted_opslabs':
+		return cmnist_correlations_opslabs_weighted_mmd()
 	if experiment == 'correlation' and model == 'simple_baseline':
 		return cmnist_correlations_simple_baseline()
 	if experiment == 'correlation' and model == 'oracle_aug':

@@ -40,6 +40,8 @@ flags.DEFINE_integer('training_steps', 3000,
 										'number of estimator training steps.')
 flags.DEFINE_float('alpha', 1.0, 'Value for the cross prediction penelty')
 flags.DEFINE_float('sigma', 1.0, 'Value for the MMD kernel bandwidth.')
+flags.DEFINE_boolean('weighted_mmd', False,
+											'use weighting when computing the mmd?.')
 flags.DEFINE_float('dropout_rate', 0.0, 'Value for drop out rate')
 flags.DEFINE_float('l2_penalty', 0.0,
 									'L2 regularization penalty for final layer')
@@ -74,6 +76,7 @@ def main(argv):
 		batch_size=FLAGS.batch_size,
 		alpha=FLAGS.alpha,
 		sigma=FLAGS.sigma,
+		weighted_mmd=FLAGS.weighted_mmd,
 		dropout_rate=FLAGS.dropout_rate,
 		l2_penalty=FLAGS.l2_penalty,
 		embedding_dim=FLAGS.embedding_dim,

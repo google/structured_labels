@@ -118,8 +118,10 @@ def model_fn(features, labels, mode, params):
 			for lab_ind in other_label_inds:
 				mmd_val = losses.mmd_loss(
 					embedding=zpred,
+					main_labels=labels[:, params["label_ind"]],
 					auxiliary_labels=labels[:, lab_ind],
-					sigma=params["sigma"])
+					sigma=params["sigma"],
+					weighted=params["weighted_mmd"])
 				all_mmd_vals.append(mmd_val)
 
 			all_mmds = tf.concat(all_mmd_vals, axis=0)
@@ -146,6 +148,7 @@ def train(exp_dir,
 					batch_size,
 					alpha,
 					sigma,
+					weighted_mmd,
 					dropout_rate,
 					l2_penalty,
 					embedding_dim,
@@ -161,6 +164,7 @@ def train(exp_dir,
 		"num_epochs": num_epochs,
 		"alpha": alpha,
 		"sigma": sigma,
+		"weighted_mmd": weighted_mmd,
 		"dropout_rate": dropout_rate,
 		"l2_penalty": l2_penalty,
 		"embedding_dim": embedding_dim,

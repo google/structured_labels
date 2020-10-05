@@ -120,7 +120,8 @@ if __name__ == "__main__":
 
 	parser.add_argument('--model_to_tune', '-model_to_tune',
 		default='slabs',
-		choices=['slabs', 'opslabs', 'simple_baseline', 'oracle_aug'],
+		choices=['slabs', 'opslabs', 'weighted_opslabs', 'simple_baseline',
+		'oracle_aug'],
 		help="Which model to tune",
 		type=str)
 
