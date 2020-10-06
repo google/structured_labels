@@ -152,7 +152,7 @@ def get_corrupt_minst(p_tr=.7,
 		x_train_valid_aug, y_train_valid_aug = corrupt_mnist(
 			x_train_valid_or,
 			y_train_valid_or,
-			py1_y0=py1_y0_s,
+			py1_y0=py1_y0_s[0],
 			pflip0=pflip0,
 			pflip1=pflip1,
 			npix=npix,
@@ -184,27 +184,19 @@ def get_corrupt_minst(p_tr=.7,
 
 	# get testing data sampled according to same distribution as observation
 	# distribution
-	same_test_data = corrupt_mnist(
-		x_test,
-		y_test,
-		py1_y0=py1_y0,
-		pflip0=pflip0,
-		pflip1=pflip1,
-		npix=npix,
-		rng=rng)
+	shifted_test_data_dict = {}
+	for py1_y0_s_val in py1_y0_s:
+		shifted_test_data = corrupt_mnist(
+			x_test,
+			y_test,
+			py1_y0=py1_y0_s_val,
+			pflip0=pflip0,
+			pflip1=pflip1,
+			npix=npix,
+			rng=rng)
+		shifted_test_data_dict[py1_y0_s_val] = shifted_test_data
 
-	# get testing data sampled according to a shifted distribution i.e.,
-	# different from observation distribution
-	shifted_test_data = corrupt_mnist(
-		x_test,
-		y_test,
-		py1_y0=py1_y0_s,
-		pflip0=pflip0,
-		pflip1=pflip1,
-		npix=npix,
-		rng=rng)
-
-	return train_data, valid_data, same_test_data, shifted_test_data
+	return train_data, valid_data, shifted_test_data_dict
 
 
 def build_input_fns(p_tr=.7,
@@ -241,7 +233,8 @@ def build_input_fns(p_tr=.7,
 		npix=npix,
 		oracle_prop=oracle_prop,
 		random_seed=random_seed)
-	train_data, valid_data, same_test_data, shifted_test_data = all_data
+
+	train_data, valid_data, shifted_data_dict = all_data
 
 	# Build an iterator over training batches.
 	def train_input_fn(params):
@@ -258,18 +251,15 @@ def build_input_fns(p_tr=.7,
 		valid_dataset = valid_dataset.batch(batch_size).repeat(1)
 		return valid_dataset
 
-	# Build an iterator over the heldout set (same distribution).
-	def eval_input_fn():
-		batch_size = int(1e5)
-		eval_dataset = tf.data.Dataset.from_tensor_slices(same_test_data)
-		eval_dataset = eval_dataset.batch(batch_size).repeat(1)
-		return eval_dataset
-
 	# Build an iterator over the heldout set (shifted distribution).
-	def eval_shift_input_fn():
-		batch_size = int(1e5)
-		eval_shift_dataset = tf.data.Dataset.from_tensor_slices(shifted_test_data)
-		eval_shift_dataset = eval_shift_dataset.batch(batch_size).repeat(1)
-		return eval_shift_dataset
+	def eval_input_fn_creater(py):
+		shifted_test_data = shifted_data_dict[py]
 
-	return train_input_fn, valid_input_fn, eval_input_fn, eval_shift_input_fn
+		def eval_input_fn():
+			batch_size = int(1e5)
+			eval_shift_dataset = tf.data.Dataset.from_tensor_slices(shifted_test_data)
+			eval_shift_dataset = eval_shift_dataset.batch(batch_size).repeat(1)
+			return eval_shift_dataset
+		return eval_input_fn
+
+	return train_input_fn, valid_input_fn, eval_input_fn_creater

@@ -20,6 +20,7 @@ import pickle
 from shared import architectures
 from shared import losses
 import tensorflow as tf
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
 
 
 def flatten_dict(dd, separator='_', prefix=''):
@@ -72,7 +73,7 @@ def model_fn(features, labels, mode, params):
 			})
 
 	if mode == tf.estimator.ModeKeys.EVAL:
-		logits, _ = net(features)
+		logits, zpred = net(features)
 		ypred = tf.nn.sigmoid(logits)
 
 		predictions = {
@@ -87,10 +88,28 @@ def model_fn(features, labels, mode, params):
 		ypred_loss = tf.reduce_mean(individual_losses)
 		loss = ypred_loss
 
+		other_label_inds = [
+			lab_ind for lab_ind in range(labels.shape[1])
+			if lab_ind != params["label_ind"]
+		]
+
+		all_mmd_vals = []
+		for lab_ind in other_label_inds:
+			mmd_val = losses.mmd_loss(
+				embedding=zpred,
+				main_labels=labels[:, params["label_ind"]],
+				auxiliary_labels=labels[:, lab_ind],
+				sigma=params["sigma"],
+				weighted=params["weighted_mmd"])
+			all_mmd_vals.append(mmd_val[0])
+
+		all_mmds = tf.concat(all_mmd_vals, axis=0)
+
 		eval_metrics = {
 			"accuracy":
 				tf.compat.v1.metrics.accuracy(
-					labels=y_aug, predictions=predictions["classes"])
+					labels=y_aug, predictions=predictions["classes"]),
+			"mmd": tf.compat.v1.metrics.mean(all_mmds)
 		}
 
 		return tf.estimator.EstimatorSpec(
@@ -122,24 +141,39 @@ def model_fn(features, labels, mode, params):
 					auxiliary_labels=labels[:, lab_ind],
 					sigma=params["sigma"],
 					weighted=params["weighted_mmd"])
-				all_mmd_vals.append(mmd_val)
+				all_mmd_vals.append(mmd_val[0])
 
 			all_mmds = tf.concat(all_mmd_vals, axis=0)
 			mmd_loss_val = tf.reduce_sum(all_mmds)
-			# full loss
-			# TODO: Add L2 regularization
-			loss = ypred_loss + params["alpha"] * mmd_loss_val
+			regularization_loss = tf.reduce_sum(net.losses)
+			loss = ypred_loss + params["alpha"] * mmd_loss_val + regularization_loss
 
 		variables = net.trainable_variables
 		gradients = tape.gradient(loss, variables)
+
+		# summary_hook = tf.estimator.SummarySaverHook(save_steps=10,
+		# 	summary_op=[
+		# 		tf.compat.v1.summary.scalar('mmd1', mmd_val[1]),
+		# 		tf.compat.v1.summary.scalar('mmd0', mmd_val[2]),
+		# 		tf.compat.v1.summary.scalar('mmd10', mmd_val[3]),
+		# 		tf.compat.v1.summary.scalar('mmd01', mmd_val[4])
+		# 	])
+
+		logging_hook = tf.estimator.LoggingTensorHook(every_n_iter=10,
+			tensors={
+				'mmd1': mmd_val[1],
+				'mmd0': mmd_val[2],
+				'mmd10': mmd_val[3],
+				'mmd01': mmd_val[4]
+			})
 
 		return tf.estimator.EstimatorSpec(
 			mode,
 			loss=loss,
 			train_op=tf.group(
 				opt.apply_gradients(zip(gradients, variables)),
-				ckpt.step.assign_add(1)))
-
+				ckpt.step.assign_add(1)),
+			training_hooks=[logging_hook])
 
 def train(exp_dir,
 					dataset_builder,
@@ -153,7 +187,8 @@ def train(exp_dir,
 					l2_penalty,
 					embedding_dim,
 					random_seed,
-					cleanup):
+					cleanup,
+					py1_y0_shift_list=None):
 	"""Trains the estimator."""
 
 	if not os.path.exists(exp_dir):
@@ -180,22 +215,21 @@ def train(exp_dir,
 		model_fn, model_dir=exp_dir, params=params, config=run_config)
 
 	input_fns = dataset_builder()
-	train_input_fn, valid_input_fn, eval_input_fn, eval_shift_input_fn = input_fns
+	train_input_fn, valid_input_fn, eval_input_fn_creater = input_fns
 	# Do the actual training.
 	est.train(train_input_fn, steps=training_steps)
-
 	validation_results = est.evaluate(valid_input_fn)
-	same_distribution_results = est.evaluate(eval_input_fn)
-	shift_distribution_results = est.evaluate(eval_shift_input_fn)
+	all_results = {"validation": validation_results}
+
+	if py1_y0_shift_list is not None:
+		for py in py1_y0_shift_list:
+			eval_input_fn = eval_input_fn_creater(py)
+			distribution_results = est.evaluate(eval_input_fn)
+			all_results[f'shift_{py}'] = distribution_results
 
 	if cleanup:
 		cleanup_directory(exp_dir)
 
 	savefile = f"{exp_dir}/performance.pkl"
-	all_results = {
-		"validation": validation_results,
-		"same_distribution": same_distribution_results,
-		"shift_distribution": shift_distribution_results
-	}
 	all_results = flatten_dict(all_results)
 	pickle.dump(all_results, open(savefile, "wb"))

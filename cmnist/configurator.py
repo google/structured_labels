@@ -31,7 +31,6 @@ def cmnist_correlations_slabs():
 		'l2_penalty': [0.0, 0.1, 1.0, 10.0, 100.0],
 		'dropout_rate': [0.0, 0.01, 0.1],
 		'embedding_dim': [10, 100, 1000],
-		'py1_y0_s': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
 		'sigma': [0.1, 1.0, 10.0, 100.0],
 		'alpha': [1.0, 10.0, 100.0, 1e5, 1e10]
 	}
@@ -56,7 +55,6 @@ def cmnist_correlations_opslabs():
 		'l2_penalty': [0.0],
 		'dropout_rate': [0.0],
 		'embedding_dim': [1000],
-		'py1_y0_s': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
 		'sigma': [0.1, 1.0, 10.0, 100.0],
 		'alpha': [1.0, 10.0, 100.0, 1e5, 1e10]
 	}
@@ -74,17 +72,17 @@ def cmnist_correlations_opslabs_weighted_mmd():
 	Returns:
 		Iterator with all hyperparameter combinations
 	"""
+
 	param_dict = {
-		'random_seed': [int(i) for i in range(2)],
+		'random_seed': [int(i) for i in range(10)],
 		'pflip0': [0.05],
 		'pflip1': [0.05],
 		'l2_penalty': [0.0],
 		'dropout_rate': [0.0],
 		'embedding_dim': [1000],
-		'py1_y0_s': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
-		'sigma': [0.1, 1.0, 10.0, 100.0],
-		'alpha': [1.0, 10.0, 100.0, 1e5, 1e10],
-		'weighted_mmd': [True]
+		'sigma': [0.1, 1.0, 2.0, 3.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 100.0],
+		'alpha': [0.0, 1.0, 10.0, 100.0, 1e5, 1e10],
+		'weighted_mmd': ["True"]
 	}
 
 	param_dict = collections.OrderedDict(sorted(param_dict.items()))
@@ -100,13 +98,12 @@ def cmnist_correlations_simple_baseline():
 		Iterator with all hyperparameter combinations
 	"""
 	param_dict = {
-		'random_seed': [int(i) for i in range(2)],
+		'random_seed': [int(i) for i in range(10)],
 		'pflip0': [0.05],
 		'pflip1': [0.05],
 		'l2_penalty': [0.0, 0.1, 1.0, 10.0, 100.0],
 		'dropout_rate': [0.0, 0.01, 0.1],
 		'embedding_dim': [10, 100, 1000],
-		'py1_y0_s': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
 		'sigma': [0.1],
 		'alpha': [0.0]
 	}
@@ -125,14 +122,14 @@ def cmnist_correlations_oracle_aug(aug_prop):
 		Iterator with all hyperparameter combinations
 	"""
 	param_dict = {
-		'random_seed': [int(i) for i in range(2)],
+		'random_seed': [int(i) for i in range(10)],
 		'pflip0': [0.05],
 		'pflip1': [0.05],
+		'py1_y0_shift_list': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
 		'oracle_prop': [aug_prop],
 		'l2_penalty': [0.0, 0.1, 1.0, 10.0, 100.0],
 		'dropout_rate': [0.0, 0.01, 0.1],
 		'embedding_dim': [10, 100, 1000],
-		'py1_y0_s': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
 		'sigma': [0.1],
 		'alpha': [0.0]
 	}
@@ -141,55 +138,6 @@ def cmnist_correlations_oracle_aug(aug_prop):
 	keys, values = zip(*param_dict.items())
 	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
 	return sweep
-
-
-def cmnist_no_overlap_slabs():
-	"""Creates hyperparameters for overlap experiment for SLABS model.
-
-	Returns:
-		Iterator with all hyperparameter combinations
-	"""
-	param_dict = {
-		'random_seed': [int(i) for i in range(2)],
-		'pflip0': [0.0],
-		'pflip1': [0.0],
-		'l2_penalty': [0.0, 0.1, 1.0, 10.0, 100.0],
-		'dropout_rate': [0.0, 0.01, 0.1],
-		'embedding_dim': [10, 100, 1000],
-		'py1_y0_s': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
-		'sigma': [0.1, 1.0, 10.0, 100.0],
-		'alpha': [1.0, 10.0, 100.0, 1e5, 1e10]
-	}
-
-	param_dict = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict.items())
-	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
-	return sweep
-
-
-def cmnist_no_overlap_simple_baseline():
-	"""Creates hyperparameters for overlap experiment for baseline.
-
-	Returns:
-		Iterator with all hyperparameter combinations
-	"""
-	param_dict = {
-		'random_seed': [int(i) for i in range(2)],
-		'pflip0': [0.0],
-		'pflip1': [0.0],
-		'l2_penalty': [0.0, 0.1, 1.0, 10.0, 100.0],
-		'dropout_rate': [0.0, 0.01, 0.1],
-		'embedding_dim': [10, 100, 1000],
-		'py1_y0_s': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
-		'sigma': [0.1],
-		'alpha': [0.0]
-	}
-
-	param_dict = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict.items())
-	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
-	return sweep
-
 
 def get_sweep(experiment, model, aug_prop=-1.0):
 	"""Wrapper function, creates configurations based on experiment and model.
@@ -205,7 +153,7 @@ def get_sweep(experiment, model, aug_prop=-1.0):
 	"""
 	implemented_models = ['slabs', 'opslabs', 'weighted_opslabs',
 		'simple_baseline', 'oracle_aug']
-	implemented_experiments = ['correlation', 'overlap']
+	implemented_experiments = ['correlation']
 
 	if model[:10] == "oracle_aug" and len(model) > 10:
 		match = re.match(r'.*(\_)', model)
@@ -233,7 +181,3 @@ def get_sweep(experiment, model, aug_prop=-1.0):
 		return cmnist_correlations_simple_baseline()
 	if experiment == 'correlation' and model == 'oracle_aug':
 		return cmnist_correlations_oracle_aug(aug_prop)
-	if experiment == 'overlap' and model == 'slabs':
-		return cmnist_no_overlap_slabs()
-	if experiment == 'overlap' and model == 'simple_baseline':
-		return cmnist_no_overlap_simple_baseline()

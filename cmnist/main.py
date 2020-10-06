@@ -24,7 +24,8 @@ from shared.utils import restrict_GPU_tf
 FLAGS = flags.FLAGS
 flags.DEFINE_float('p_tr', .7, 'proportion of data used for training.')
 flags.DEFINE_float('py1_y0', 1, '(unshifted) probability of y1 =1 | y0 = 1.')
-flags.DEFINE_float('py1_y0_s', .5, '(shifted) probability of y1 =1 | y0 = 1.')
+flags.DEFINE_list('py1_y0_shift_list', [.1, .2, .3, .4, .5, .6, .7, .8, .9, 1.],
+	'(shifted) probability of y1 =1 | y0 = 1.')
 flags.DEFINE_float('pflip0', .1, 'proportion of y0 randomly flipped (noise).')
 flags.DEFINE_float('pflip1', 0.0, 'proportion of y1 randomly flipped (noise).')
 flags.DEFINE_integer('npix', 20, 'number of pixels to corrupt.')
@@ -32,7 +33,7 @@ flags.DEFINE_float('oracle_prop', 0.0,
 										'proportion of training data to use for oracle augmentation.')
 
 
-flags.DEFINE_string('exp_dir', '/data/ddmg/slabs/',
+flags.DEFINE_string('exp_dir', '/data/ddmg/slabs/dummy/',
 										'Directory to save trained model in.')
 flags.DEFINE_integer('num_epochs', 10, 'number of epochs.')
 flags.DEFINE_integer('batch_size', 32, 'batch size.')
@@ -40,7 +41,7 @@ flags.DEFINE_integer('training_steps', 3000,
 										'number of estimator training steps.')
 flags.DEFINE_float('alpha', 1.0, 'Value for the cross prediction penelty')
 flags.DEFINE_float('sigma', 1.0, 'Value for the MMD kernel bandwidth.')
-flags.DEFINE_boolean('weighted_mmd', False,
+flags.DEFINE_string('weighted_mmd', 'unweighted',
 											'use weighting when computing the mmd?.')
 flags.DEFINE_float('dropout_rate', 0.0, 'Value for drop out rate')
 flags.DEFINE_float('l2_penalty', 0.0,
@@ -56,18 +57,24 @@ flags.DEFINE_string('gpuid', '0', 'Gpu id to run the model on.')
 def main(argv):
 	del argv
 
-	def dataset_builder():
+	if isinstance(FLAGS.py1_y0_shift_list[0], str):
+		py1_y0_shift_list = [float(val) for val in FLAGS.py1_y0_shift_list]
+	else:
+		py1_y0_shift_list = FLAGS.py1_y0_shift_list
 
+	def dataset_builder():
 		return data_builder.build_input_fns(
 			p_tr=FLAGS.p_tr,
 			py1_y0=FLAGS.py1_y0,
-			py1_y0_s=FLAGS.py1_y0_s,
+			py1_y0_s=py1_y0_shift_list,
 			pflip0=FLAGS.pflip0,
 			pflip1=FLAGS.pflip1,
 			npix=FLAGS.npix,
 			oracle_prop=FLAGS.oracle_prop)
 
 	restrict_GPU_tf(FLAGS.gpuid, memfrac=0.1)
+
+
 	train.train(
 		exp_dir=FLAGS.exp_dir,
 		dataset_builder=dataset_builder,
@@ -81,7 +88,8 @@ def main(argv):
 		l2_penalty=FLAGS.l2_penalty,
 		embedding_dim=FLAGS.embedding_dim,
 		random_seed=FLAGS.random_seed,
-		cleanup=FLAGS.cleanup)
+		cleanup=FLAGS.cleanup,
+		py1_y0_shift_list=py1_y0_shift_list)
 
 
 if __name__ == '__main__':
