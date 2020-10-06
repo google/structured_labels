@@ -92,7 +92,7 @@ def corrupt_mnist(x, y, py1_y0, pflip0=.1, pflip1=.1, npix=5, rng=None):
 	if pflip1 > 0:
 		flips = rng.choice(
 			range(y0.shape[0]), size=int(pflip1 * y0.shape[0]), replace=False)
-		y0[flips] = 1 - y0[flips]
+		y1[flips] = 1 - y1[flips]
 	xc = [color_corrupt_img(img, y=lab, npix=npix) for img, lab in zip(x, y1)]
 	xc = np.stack(xc, axis=0)
 	xc = xc.astype(np.float32)
