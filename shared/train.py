@@ -365,8 +365,6 @@ def model_fn(features, labels, mode, params):
 			ypred = tf.nn.sigmoid(logits)
 
 			if params['minimize_logits'] == 'True':
-				print(params['minimize_logits'])
-				assert 1==2
 				if params['weighted_mmd'] == "True":
 					prediction_loss, mmd_loss = compute_loss(labels, logits, logits,
 						sample_weights, sample_weights_pos, sample_weights_neg, params)
@@ -379,7 +377,6 @@ def model_fn(features, labels, mode, params):
 					prediction_loss, mmd_loss = compute_loss(labels, logits, zpred,
 						sample_weights, sample_weights_pos, sample_weights_neg, params)
 				else:
-					assert 1==2
 					prediction_loss, mmd_loss = compute_loss(labels, logits, zpred,
 						None, None, None, params)
 
@@ -394,29 +391,29 @@ def model_fn(features, labels, mode, params):
 		summary_hook_list = [sgima_decayed,
 				mmd_val_op, pred_loss_op, regularization_loss_op]
 
-		# orig_sigma = params['sigma']
-		# orig_weighting = params['weighted_mmd']
-		# for sigma_val in [0.1, 1, 10, 100, 1000, 10000]:
-		# 	uw_temp_params = copy.deepcopy(params)
-		# 	uw_temp_params['sigma'] = sigma_val
-		# 	uw_temp_params['weighted_mmd'] = 'False'
-		# 	_, uw_mmd_val_at_sigma = compute_loss(labels, logits, zpred, None,
-		# 		None, None, uw_temp_params)
+		orig_sigma = params['sigma']
+		orig_weighting = params['weighted_mmd']
+		for sigma_val in [0.1, 1, 10, 100, 1000, 10000]:
+			uw_temp_params = copy.deepcopy(params)
+			uw_temp_params['sigma'] = sigma_val
+			uw_temp_params['weighted_mmd'] = 'False'
+			_, uw_mmd_val_at_sigma = compute_loss(labels, logits, zpred, None,
+				None, None, uw_temp_params)
 
-		# 	summary_hook_list.append(
-		# 		tf.compat.v1.summary.scalar(f'uw_mmd{sigma_val}', uw_mmd_val_at_sigma)
-		# 	)
+			summary_hook_list.append(
+				tf.compat.v1.summary.scalar(f'uw_mmd{sigma_val}', uw_mmd_val_at_sigma)
+			)
 
-		# 	w_temp_params = copy.deepcopy(params)
-		# 	w_temp_params['sigma'] = sigma_val
-		# 	w_temp_params['weighted_mmd'] = 'True'
-		_, w_mmd_val_at_sigma = compute_loss(labels, logits, zpred,
-			sample_weights, sample_weights_pos, sample_weights_neg,
-			params)
+			w_temp_params = copy.deepcopy(params)
+			w_temp_params['sigma'] = sigma_val
+			w_temp_params['weighted_mmd'] = 'True'
+			_, w_mmd_val_at_sigma = compute_loss(labels, logits, zpred,
+				sample_weights, sample_weights_pos, sample_weights_neg,
+				w_temp_params)
 
-		summary_hook_list.append(
-			tf.compat.v1.summary.scalar(f'w_mmd10', w_mmd_val_at_sigma)
-		)
+			summary_hook_list.append(
+				tf.compat.v1.summary.scalar(f'w_mmd{sigma_val}', w_mmd_val_at_sigma)
+			)
 
 		# assert params['sigma'] == orig_sigma
 		# assert params['weighted_mmd'] == orig_weighting
