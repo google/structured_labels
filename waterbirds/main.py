@@ -54,10 +54,10 @@ flags.DEFINE_float('l2_penalty', 0.0,
 flags.DEFINE_integer('embedding_dim', 1000,
 										'Dimension for the final embedding.')
 flags.DEFINE_integer('random_seed', 0, 'random seed for tensorflow estimator')
-flags.DEFINE_boolean('minimize_logits', False,
+flags.DEFINE_string('minimize_logits', 'False',
 		'compute mmd wrt to logits if true and embedding if false.')
 
-flags.DEFINE_boolean('cleanup', False,
+flags.DEFINE_string('cleanup', 'False',
 		'remove tensorflow artifacts after training to reduce memory usage.')
 flags.DEFINE_string('gpuid', '0', 'Gpu id to run the model on.')
 

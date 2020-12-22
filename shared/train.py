@@ -215,7 +215,7 @@ def model_fn(features, labels, mode, params):
 	y_main = tf.expand_dims(labels[:, params["label_ind"]], axis=-1)
 
 	if mode == tf.estimator.ModeKeys.EVAL:
-		if params['minimize_logits']:
+		if params['minimize_logits'] == 'True':
 			unweighted_loss, unweighted_mmd = compute_loss(labels, logits, logits, None,
 				None, None, params)
 			weighted_loss, weighted_mmd = compute_loss(labels, logits, logits,
@@ -347,14 +347,26 @@ def model_fn(features, labels, mode, params):
 			mode=mode, loss=loss, train_op=None, eval_metric_ops=eval_metrics)
 
 	if mode == tf.estimator.ModeKeys.TRAIN:
+
 		opt = tf.keras.optimizers.Adam()
+		global_step = tf.compat.v1.train.get_global_step()
+
 		ckpt = tf.train.Checkpoint(
-			step=tf.compat.v1.train.get_global_step(), optimizer=opt, net=net)
+			step=global_step, optimizer=opt, net=net)
+
+		sgima_decayed = tf.convert_to_tensor(params['sigma']) * tf.cast(
+			global_step, dtype=tf.float32)
+
+		tf.compat.v1.summary.scalar('sgima_decayed',
+				sgima_decayed)
+
 		with tf.GradientTape() as tape:
 			logits, zpred = net(features, training=training_state)
 			ypred = tf.nn.sigmoid(logits)
 
-			if params['minimize_logits']:
+			if params['minimize_logits'] == 'True':
+				print(params['minimize_logits'])
+				assert 1==2
 				if params['weighted_mmd'] == "True":
 					prediction_loss, mmd_loss = compute_loss(labels, logits, logits,
 						sample_weights, sample_weights_pos, sample_weights_neg, params)
@@ -367,6 +379,7 @@ def model_fn(features, labels, mode, params):
 					prediction_loss, mmd_loss = compute_loss(labels, logits, zpred,
 						sample_weights, sample_weights_pos, sample_weights_neg, params)
 				else:
+					assert 1==2
 					prediction_loss, mmd_loss = compute_loss(labels, logits, zpred,
 						None, None, None, params)
 
@@ -377,7 +390,36 @@ def model_fn(features, labels, mode, params):
 			pred_loss_op = tf.compat.v1.summary.scalar('ploss', prediction_loss)
 			regularization_loss_op = tf.compat.v1.summary.scalar('regloss',
 				regularization_loss)
-			summary_hook_list = [mmd_val_op, pred_loss_op, regularization_loss_op]
+
+		summary_hook_list = [sgima_decayed,
+				mmd_val_op, pred_loss_op, regularization_loss_op]
+
+		# orig_sigma = params['sigma']
+		# orig_weighting = params['weighted_mmd']
+		# for sigma_val in [0.1, 1, 10, 100, 1000, 10000]:
+		# 	uw_temp_params = copy.deepcopy(params)
+		# 	uw_temp_params['sigma'] = sigma_val
+		# 	uw_temp_params['weighted_mmd'] = 'False'
+		# 	_, uw_mmd_val_at_sigma = compute_loss(labels, logits, zpred, None,
+		# 		None, None, uw_temp_params)
+
+		# 	summary_hook_list.append(
+		# 		tf.compat.v1.summary.scalar(f'uw_mmd{sigma_val}', uw_mmd_val_at_sigma)
+		# 	)
+
+		# 	w_temp_params = copy.deepcopy(params)
+		# 	w_temp_params['sigma'] = sigma_val
+		# 	w_temp_params['weighted_mmd'] = 'True'
+		_, w_mmd_val_at_sigma = compute_loss(labels, logits, zpred,
+			sample_weights, sample_weights_pos, sample_weights_neg,
+			params)
+
+		summary_hook_list.append(
+			tf.compat.v1.summary.scalar(f'w_mmd10', w_mmd_val_at_sigma)
+		)
+
+		# assert params['sigma'] == orig_sigma
+		# assert params['weighted_mmd'] == orig_weighting
 
 		variables = net.trainable_variables
 		gradients = tape.gradient(loss, variables)
@@ -482,5 +524,5 @@ def train(exp_dir,
 	print(f'{exp_dir}/saved_model')
 	est.export_saved_model(f'{exp_dir}/saved_model', serving_input_fn)
 
-	# if cleanup:
+	# if cleanup == 'True':
 	# 	cleanup_directory(scratch_exp_dir)
