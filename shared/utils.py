@@ -17,6 +17,7 @@
 import hashlib
 import os
 
+from subprocess import call
 import tensorflow as tf
 
 
@@ -65,3 +66,29 @@ def tried_config(config, base_dir):
 	hash_dir = os.path.join(base_dir, 'tuning', hash_string)
 	performance_file = os.path.join(hash_dir, 'performance.pkl')
 	return os.path.isfile(performance_file)
+
+
+def tried_config_file(config, base_dir):
+	"""Tests if config has been tried before.
+	Args:
+		config: hyperparam config
+		base_dir: directory where the tuning folder lives
+	"""
+	hash_string = config_hasher(config)
+	hash_dir = os.path.join(base_dir, 'tuning', hash_string)
+	performance_file = os.path.join(hash_dir, 'performance.pkl')
+	if os.path.isfile(performance_file):
+		return config
+
+
+def delete_config_file(config, base_dir):
+	""" deletes results for the specified config.
+		Args:
+		config: hyperparam config
+		base_dir: directory where the tuning folder lives
+	"""
+
+	hash_string = config_hasher(config)
+	hash_dir = os.path.join(base_dir, 'tuning', hash_string)
+	if os.path.exists(hash_dir):
+		call(f'rm -rf {hash_dir}', shell=True)
