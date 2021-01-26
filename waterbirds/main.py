@@ -58,6 +58,11 @@ flags.DEFINE_float('l2_penalty', 0.0,
 									'L2 regularization penalty for final layer')
 flags.DEFINE_integer('embedding_dim', 1000,
 										'Dimension for the final embedding.')
+
+flags.DEFINE_string('random_augmentation', 'False',
+		'Augment data at training time using random transformations.')
+
+
 flags.DEFINE_integer('random_seed', 0, 'random seed for tensorflow estimator')
 
 flags.DEFINE_string('minimize_logits', 'False',
@@ -106,6 +111,7 @@ def main(argv):
 		dropout_rate=FLAGS.dropout_rate,
 		l2_penalty=FLAGS.l2_penalty,
 		embedding_dim=FLAGS.embedding_dim,
+		random_augmentation=FLAGS.random_augmentation, 
 		random_seed=FLAGS.random_seed,
 		minimize_logits=FLAGS.minimize_logits,
 		cleanup=FLAGS.cleanup,

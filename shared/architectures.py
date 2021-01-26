@@ -29,12 +29,18 @@ def create_architecture(params):
 			dropout_rate=params["dropout_rate"],
 			l2_penalty=params["l2_penalty"],
 			embedding_dim=params["embedding_dim"])
-	elif params['architecture'] == 'pretrained_resnet':
+	elif params['architecture'] == 'pretrained_resnet' and (params['random_augmentation'] == "False"):
+
 		net = PretrainedResNet50(
 			embedding_dim=params["embedding_dim"],
 			l2_penalty=params["l2_penalty"])
 	elif params['architecture'] == 'pretrained_resnet_random':
 		net = RandomResNet50(
+			embedding_dim=params["embedding_dim"],
+			l2_penalty=params["l2_penalty"])
+
+	elif (params['architecture'] == 'pretrained_resnet') and (params['random_augmentation'] == "True"):
+		net = PretrainedResNet50_RandomAugmentation(
 			embedding_dim=params["embedding_dim"],
 			l2_penalty=params["l2_penalty"])
 
@@ -251,6 +257,48 @@ class PretrainedResNet50(tf.keras.Model):
 
 	@tf.function
 	def call(self, inputs, training=False):
+		x = self.resenet(inputs, training)
+		x = self.avg_pool(x)
+		if self.embedding_dim != 10:
+			x = self.embedding(x)
+		return self.dense(x), x
+
+
+class PretrainedResNet50_RandomAugmentation(tf.keras.Model):
+	"""Simple architecture with convolutions + max pooling."""
+
+	def __init__(self, embedding_dim=10, l2_penalty=0.0,
+		l2_penalty_last_only=False):
+		super(PretrainedResNet50_RandomAugmentation, self).__init__()
+		self.embedding_dim = embedding_dim
+
+		self.data_augmentation = tf.keras.Sequential([
+			tf.keras.layers.experimental.preprocessing.RandomFlip("horizontal_and_vertical"),
+			tf.keras.layers.experimental.preprocessing.RandomRotation(0.2)
+		])
+
+		self.resenet = ResNet50(include_top=False, layers=tf.keras.layers,
+			weights='imagenet')
+		self.avg_pool = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')
+
+		if not l2_penalty_last_only:
+			regularizer = tf.keras.regularizers.l2(l2_penalty)
+			for layer in self.resenet.layers:
+				if hasattr(layer, 'kernel'):
+					self.add_loss(lambda layer=layer: regularizer(layer.kernel))
+		# TODO fix this
+		if self.embedding_dim != 10:
+			self.embedding = tf.keras.layers.Dense(self.embedding_dim,
+				kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
+		self.dense = tf.keras.layers.Dense(1,
+			kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
+
+	@tf.function
+	def call(self, inputs, training=False):
+		if training:
+			x = self.data_augmentation(inputs, training=training)
+		else: 
+			x = inputs
 		x = self.resenet(inputs, training)
 		x = self.avg_pool(x)
 		if self.embedding_dim != 10:

@@ -149,6 +149,43 @@ def configure_weighted_baseline(py0, py1_y0):
 	return sweep
 
 
+
+
+def configure_random_augmentation(py0, py1_y0):
+	"""Creates hyperparameters for the correlations experiment for baseline.
+
+	Returns:
+		Iterator with all hyperparameter combinations
+	"""
+
+	param_dict = {
+		'random_seed': [i for i in range(10)],
+		'pflip0': [0.01],
+		'pflip1': [0.01],
+		'py0': [py0],
+		'py1_y0': [py1_y0],
+		'pixel': [128],
+		'l2_penalty': [0.0],
+		'dropout_rate': [0.0],
+		'embedding_dim': [10],
+		'sigma': [10.0],
+		'alpha': [0.0],
+		"architecture": ["pretrained_resnet"],
+		"batch_size": [64],
+		'weighted_mmd': ["False"],
+		"balanced_weights": ["False"],
+		'minimize_logits': ["False"], 
+		"random_augmentation": ['True']
+	}
+
+	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
+	keys, values = zip(*param_dict_ordered.items())
+	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
+
+	return sweep
+
+
+
 def configure_oracle_aug(aug_prop):
 	"""Creates hyperparameters for the correlations experiment for baseline.
 	Args:
@@ -195,6 +232,7 @@ def configure_oracle_aug(aug_prop):
 	return sweep
 
 
+
 def get_sweep(experiment, model, aug_prop=-1.0):
 	"""Wrapper function, creates configurations based on experiment and model.
 
@@ -211,7 +249,7 @@ def get_sweep(experiment, model, aug_prop=-1.0):
 		'slabs', 'slabs_logit',
 		'unweighted_slabs', 'unweighted_slabs_logit',
 		'simple_baseline','weighted_baseline',
-		'oracle_aug']
+		'oracle_aug', 'random_aug']
 
 	implemented_experiments = ['5090', '5050', '8090']
 
@@ -251,4 +289,7 @@ def get_sweep(experiment, model, aug_prop=-1.0):
 
 	if model == 'weighted_baseline':
 		return configure_weighted_baseline(py0, py1_y0)
+		
+	if model == 'random_aug':
+		return configure_random_augmentation(py0, py1_y0)
 
