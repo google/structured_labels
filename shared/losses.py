@@ -95,7 +95,7 @@ def mmd_loss_unweighted(embedding, auxiliary_labels, params):
 	return mmd_val, pos_kernel_mean, neg_kernel_mean, pos_neg_kernel_mean, pos_neg_kernel_mean
 
 
-def mmd_loss_weighted(embedding, auxiliary_labels, weights_pos, weights_neg, params):
+def mmd_loss_weighted_one_way(embedding, auxiliary_labels, weights_pos, weights_neg, params):
 	r"""Computes weighted MMD loss between embeddings of groups defined by label.
 
 	Maximum Mean Discrepancy (MMD) is an integrated probability metric.
@@ -192,7 +192,7 @@ def mmd_loss_weighted(embedding, auxiliary_labels, weights_pos, weights_neg, par
 	return mmd_val, pos_kernel_mean, neg_kernel_mean, pos_neg_kernel_mean, pos_neg_kernel_mean
 
 
-def mmd_loss_weighted_both_ways(embedding, auxiliary_labels, weights_pos,
+def mmd_loss_weighted(embedding, auxiliary_labels, weights_pos,
 	weights_neg, params):
 	r""" NOTE: this function is not used, alternative way to compute the weighted
 	mmd. weights the examples both ways (rows and columns).
@@ -259,7 +259,7 @@ def mmd_loss_weighted_both_ways(embedding, auxiliary_labels, weights_pos,
 
 	pos_kernel_mean = tf.math.divide_no_nan(
 		tf.reduce_sum(pos_kernel_mean, axis=1),
-		tf.reduce_sum(weights_pos, axis=1))
+		tf.reduce_sum(weights_pos))
 
 	pos_kernel_mean = tf.math.divide_no_nan(
 		tf.reduce_sum(pos_kernel_mean * tf.squeeze(weights_pos)),
@@ -270,7 +270,8 @@ def mmd_loss_weighted_both_ways(embedding, auxiliary_labels, weights_pos,
 
 	neg_kernel_mean = tf.math.divide_no_nan(
 		tf.reduce_sum(neg_kernel_mean, axis=1),
-		tf.reduce_sum(weights_neg, axis=1))
+		tf.reduce_sum(weights_neg))
+	
 	neg_kernel_mean = tf.math.divide_no_nan(
 		tf.reduce_sum(neg_kernel_mean * tf.squeeze(weights_neg)),
 		tf.reduce_sum(weights_neg))
@@ -280,7 +281,7 @@ def mmd_loss_weighted_both_ways(embedding, auxiliary_labels, weights_pos,
 
 	neg_pos_kernel_mean = tf.math.divide_no_nan(
 		tf.reduce_sum(neg_pos_kernel_mean, axis=1),
-		tf.reduce_sum(weights_pos, axis=1))
+		tf.reduce_sum(weights_pos))
 
 	neg_pos_kernel_mean = tf.math.divide_no_nan(
 		tf.reduce_sum(neg_pos_kernel_mean * tf.squeeze(weights_neg)),
@@ -291,7 +292,7 @@ def mmd_loss_weighted_both_ways(embedding, auxiliary_labels, weights_pos,
 
 	pos_neg_kernel_mean = tf.math.divide_no_nan(
 		tf.reduce_sum(pos_neg_kernel_mean, axis=1),
-		tf.reduce_sum(weights_neg, axis=1))
+		tf.reduce_sum(weights_neg))
 
 	pos_neg_kernel_mean = tf.math.divide_no_nan(
 		tf.reduce_sum(pos_neg_kernel_mean * tf.squeeze(weights_pos)),
@@ -302,6 +303,7 @@ def mmd_loss_weighted_both_ways(embedding, auxiliary_labels, weights_pos,
 	mmd_val = tf.maximum(0.0, mmd_val)
 
 	return mmd_val, pos_kernel_mean, neg_kernel_mean, pos_neg_kernel_mean, pos_neg_kernel_mean
+
 
 
 

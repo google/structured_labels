@@ -22,6 +22,32 @@ from tensorflow.keras.applications.resnet50 import ResNet50
 # from tensorflow.keras.layers.experimental import preprocessing
 
 
+def create_architecture(params):
+
+	if params['architecture'] == 'simple':
+		net = SimpleConvolutionNet(
+			dropout_rate=params["dropout_rate"],
+			l2_penalty=params["l2_penalty"],
+			embedding_dim=params["embedding_dim"])
+	elif params['architecture'] == 'pretrained_resnet':
+		net = PretrainedResNet50(
+			embedding_dim=params["embedding_dim"],
+			l2_penalty=params["l2_penalty"])
+	elif params['architecture'] == 'pretrained_resnet_random':
+		net = RandomResNet50(
+			embedding_dim=params["embedding_dim"],
+			l2_penalty=params["l2_penalty"])
+
+	elif params['architecture'] == 'pretrained_resnet101':
+		net = PretrainedResNet101(
+			embedding_dim=params["embedding_dim"],
+			l2_penalty=params["l2_penalty"])
+
+	elif params['architecture'] == 'from_scratch_resnet':
+		net = ScratchResNet50()
+
+	return net
+
 class ResnetIdentityBlock(tf.keras.Model):
 	def __init__(self, filters, kernel_size=3, stride=1, name=None):
 		# check naming
@@ -202,17 +228,20 @@ class ScratchResNet50(tf.keras.Model):
 class PretrainedResNet50(tf.keras.Model):
 	"""Simple architecture with convolutions + max pooling."""
 
-	def __init__(self, embedding_dim=10, l2_penalty=0.0):
+	def __init__(self, embedding_dim=10, l2_penalty=0.0,
+		l2_penalty_last_only=False):
 		super(PretrainedResNet50, self).__init__()
 		self.embedding_dim = embedding_dim
+
 		self.resenet = ResNet50(include_top=False, layers=tf.keras.layers,
 			weights='imagenet')
 		self.avg_pool = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')
 
-		regularizer = tf.keras.regularizers.l2(l2_penalty)
-		for layer in self.resenet.layers:
-			if hasattr(layer, 'kernel'):
-				self.add_loss(lambda layer=layer: regularizer(layer.kernel))
+		if not l2_penalty_last_only:
+			regularizer = tf.keras.regularizers.l2(l2_penalty)
+			for layer in self.resenet.layers:
+				if hasattr(layer, 'kernel'):
+					self.add_loss(lambda layer=layer: regularizer(layer.kernel))
 		# TODO fix this
 		if self.embedding_dim != 10:
 			self.embedding = tf.keras.layers.Dense(self.embedding_dim,

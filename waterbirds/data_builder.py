@@ -26,14 +26,20 @@ import tensorflow as tf
 DATA_DIR = '/data/ddmg/slabs/waterbirds'
 IMAGE_DIR = '/data/ddmg/slabs/CUB_200_2011'
 SEGMENTATION_DIR = '/data/ddmg/slabs/segmentations/'
+
+EASY_DATA = True
+# NUM_PLACE_IMAGES = 8000 if EASY_DATA else 10000
+# WATER_IMG_DIR = 'water_easy' if EASY_DATA else 'water'
+# LAND_IMG_DIR = 'land_easy' if EASY_DATA else 'land'
 NUM_PLACE_IMAGES = 10000
+WATER_IMG_DIR = 'water'
+LAND_IMG_DIR = 'land'
 
 WATERBIRD_LIST = [
 	'Albatross', 'Auklet', 'Cormorant', 'Frigatebird', 'Fulmar', 'Gull', 'Jaeger',
 	'Kittiwake', 'Pelican', 'Puffin', 'Tern', 'Gadwall', 'Grebe', 'Mallard',
 	'Merganser', 'Guillemot', 'Pacific_Loon'
 ]
-
 
 def read_decode_jpg(file_path):
 	img = tf.io.read_file(file_path)
@@ -51,6 +57,7 @@ def decode_number(label):
 	label = tf.expand_dims(label, 0)
 	label = tf.strings.to_number(label)
 	return label
+
 
 def map_to_image_label(x, pixel):
 
@@ -70,7 +77,6 @@ def map_to_image_label(x, pixel):
 		balanced_weights_pos = x[8]
 		balanced_weights_neg = x[9]
 		balanced_weights_both = x[10]
-
 
 	# decode images
 	bird_image = read_decode_jpg(bird_image)
@@ -134,48 +140,50 @@ def get_bird_type(x):
 	bird_type = max(bird_type) * 1
 	return bird_type
 
+
 def get_weights(data_frame):
 
-	water_back_water_bird_weight = np.sum(data_frame.y0 * data_frame.y1) / np.sum(data_frame.y1)
-	water_back_land_bird_weight = np.sum( (1.0 - data_frame.y0) * data_frame.y1
-		) / np.sum(data_frame.y1)
+	water_back_water_bird_weight = np.sum(
+		data_frame.y0 * data_frame.y1) / np.sum(data_frame.y1)
+	water_back_land_bird_weight = np.sum(
+		(1.0 - data_frame.y0) * data_frame.y1) / np.sum(data_frame.y1)
 
-	land_back_water_bird_weight = np.sum(data_frame.y0 * (1.0 - data_frame.y1)
-		) / np.sum((1.0 - data_frame.y1))
-	land_back_land_bird_weight = np.sum( (1.0 - data_frame.y0) * (1.0 - data_frame.y1)
-		) / np.sum((1.0 - data_frame.y1))
+	land_back_water_bird_weight = np.sum(
+		data_frame.y0 * (1.0 - data_frame.y1)) / np.sum((1.0 - data_frame.y1))
+	land_back_land_bird_weight = np.sum(
+		(1.0 - data_frame.y0) * (1.0 - data_frame.y1)) / np.sum(
+		(1.0 - data_frame.y1))
 
 	# -- positive weights
 	data_frame['weights_pos'] = data_frame.y0 * water_back_water_bird_weight + \
-					(1.0 - data_frame.y0) * water_back_land_bird_weight
+		(1.0 - data_frame.y0) * water_back_land_bird_weight
 	data_frame['weights_pos'] = 1.0 / data_frame['weights_pos']
 	data_frame['weights_pos'] = data_frame.y1 * data_frame['weights_pos']
 
 	assert data_frame.weights_pos.isin([np.nan, np.inf, -np.inf]).sum() == 0
 
-	data_frame['balanced_weights_pos'] = np.mean(data_frame.y0) * data_frame.y0 * data_frame.weights_pos + \
+	data_frame['balanced_weights_pos'] = np.mean(data_frame.y0) * \
+		data_frame.y0 * data_frame.weights_pos + \
 		np.mean(1.0 - data_frame.y0) * (1.0 - data_frame.y0) * data_frame.weights_pos
 
-
 	# -- negative weights
-	data_frame['weights_neg'] =	data_frame.y0 *  land_back_water_bird_weight + \
-					(1.0 - data_frame.y0) * land_back_land_bird_weight
+	data_frame['weights_neg'] = data_frame.y0 * land_back_water_bird_weight + \
+		(1.0 - data_frame.y0) * land_back_land_bird_weight
 	data_frame['weights_neg'] = 1.0 / data_frame['weights_neg']
 	data_frame['weights_neg'] = (1.0 - data_frame.y1) * data_frame['weights_neg']
 
 	assert data_frame.weights_neg.isin([np.nan, np.inf, -np.inf]).sum() == 0
 
-	data_frame['balanced_weights_neg'] = np.mean(data_frame.y0) * data_frame.y0 * data_frame.weights_neg + \
+	data_frame['balanced_weights_neg'] = np.mean(data_frame.y0) * \
+		data_frame.y0 * data_frame.weights_neg + \
 		np.mean(1.0 - data_frame.y0) * (1.0 - data_frame.y0) * data_frame.weights_neg
-
 
 	# aggregate weights
 	data_frame['weights'] = data_frame['weights_pos'] + data_frame['weights_neg']
-	data_frame['balanced_weights'] = data_frame['balanced_weights_pos'] + data_frame['balanced_weights_neg']
-
+	data_frame['balanced_weights'] = data_frame['balanced_weights_pos'] + \
+		data_frame['balanced_weights_neg']
 
 	return data_frame
-
 
 
 def create_images_labels(bird_data_frame, water_images, land_images, py1_y0=1,
@@ -200,14 +208,15 @@ def create_images_labels(bird_data_frame, water_images, land_images, py1_y0=1,
 	# -- randomly pick land and water images
 	water_image_ids = rng.choice(water_images,
 		size=int(bird_data_frame.y1.sum()), replace=False)
-
 	water_backgrounds = [
-		f'water/image_{img_id}.jpg' for img_id in water_image_ids
+		f'{WATER_IMG_DIR}/image_{img_id}.jpg' for img_id in water_image_ids
 	]
 
 	land_image_ids = rng.choice(land_images,
 		size=int((1 - bird_data_frame.y1).sum()), replace=False)
-	land_backgrounds = [f'land/image_{img_id}.jpg' for img_id in land_image_ids]
+	land_backgrounds = [
+		f'{LAND_IMG_DIR}/image_{img_id}.jpg' for img_id in land_image_ids
+	]
 
 	bird_data_frame['background_filename'] = ''
 	bird_data_frame.background_filename[(
@@ -278,7 +287,17 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 
 	df = pd.read_csv(f'{IMAGE_DIR}/images.txt', sep=" ", header=None,
 		names=['img_id', 'img_filename'], index_col='img_id')
+	df = df.sample(frac=1)
+	print(df.head())
 	df.reset_index(inplace=True, drop=True)
+
+	if EASY_DATA:
+		df = df[((
+			df.img_filename.str.contains('Gull')) | (
+			df.img_filename.str.contains('Warbler')
+		))]
+
+		df.reset_index(inplace=True, drop=True)
 
 	# -- get bird type
 	df['y0'] = df.apply(get_bird_type, axis=1)
@@ -286,13 +305,12 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 	if py0 == 0.5:
 		land_birds_to_keep = np.random.choice(df[(df.y0==0)].index,
 			size=df.y0.sum(), replace=False).tolist()
-		water_birds_to_keep = df[(df.y0==1)].index.tolist()
+		water_birds_to_keep = df[(df.y0 == 1)].index.tolist()
 		birds_to_keep = land_birds_to_keep + water_birds_to_keep
 		birds_to_keep = np.random.choice(birds_to_keep,size=len(birds_to_keep),
 			replace=False).tolist()
 		df = df.iloc[birds_to_keep]
 		df.reset_index(inplace=True, drop=True)
-
 
 	train_val_ids = rng.choice(df.shape[0],
 		size=int(p_tr * df.shape[0]), replace=False).tolist()
@@ -334,8 +352,7 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 
 	# --- save training data
 	train_df = train_valid_df[(train_valid_df.train == 1)].reset_index(drop=True)
-	train_df = get_weights(train_df)
-
+	train_df = get_weights(train_df) 
 	save_created_data(train_df, experiment_directory=experiment_directory,
 		filename='train')
 
@@ -367,7 +384,7 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 
 
 def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
-	pflip1=.1, oracle_prop=0.0, random_seed=None):
+	pflip1=.1, oracle_prop=0.0, Kfolds=0, random_seed=None):
 
 	if oracle_prop > 0.0:
 		raise NotImplementedError("not yet!")
@@ -395,28 +412,60 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 	train_data, valid_data, shifted_data_dict = load_created_data(
 		experiment_directory=experiment_directory, py1_y0_s=py1_y0_s)
 
+	# --this helps auto-set training steps at train time
+	training_data_size = len(train_data)
+
 	# Build an iterator over training batches.
 	def train_input_fn(params):
 		map_to_image_label_given_pixel = functools.partial(map_to_image_label,
 			pixel=params['pixel'])
 		batch_size = params['batch_size']
-		# TODO dont hard code
-		num_epochs = 200
+		num_epochs = params['num_epochs']
 
 		dataset = tf.data.Dataset.from_tensor_slices(train_data)
-		dataset = dataset.map(map_to_image_label_given_pixel)
-		dataset = dataset.shuffle(int(1e5)).batch(batch_size).repeat(num_epochs)
+		dataset = dataset.map(map_to_image_label_given_pixel, num_parallel_calls=1)
+		# dataset = dataset.shuffle(int(1e5)).batch(batch_size).repeat(num_epochs)
+		dataset = dataset.batch(batch_size).repeat(num_epochs)
 		return dataset
 
 	# Build an iterator over validation batches
+
 	def valid_input_fn(params):
 		map_to_image_label_given_pixel = functools.partial(map_to_image_label,
 			pixel=params['pixel'])
 		batch_size = params['batch_size']
 		valid_dataset = tf.data.Dataset.from_tensor_slices(valid_data)
-		valid_dataset = valid_dataset.map(map_to_image_label_given_pixel)
-		valid_dataset = valid_dataset.batch(batch_size).repeat(1)
+		valid_dataset = valid_dataset.map(map_to_image_label_given_pixel, num_parallel_calls=1)
+		valid_dataset = valid_dataset.batch(batch_size, drop_remainder=True).repeat(1)
 		return valid_dataset
+
+	# -- Create kfold splits
+	if Kfolds > 0:
+		effective_validation_size = int(int(len(valid_data) / Kfolds) * Kfolds)
+		batch_size = int(effective_validation_size / Kfolds)
+
+		valid_splits = np.random.choice(len(valid_data), size=effective_validation_size,
+			replace=False).tolist()
+
+		valid_splits = [
+			valid_splits[i:i + batch_size] for i in range(0, effective_validation_size, batch_size)
+		]
+
+		def Kfold_input_fn_creater(foldid):
+			fold_examples = valid_splits[foldid]
+			valid_fold_data = [valid_data[i] for i in range(len(valid_data)) if i in fold_examples]
+
+			def Kfold_input_fn(params):
+				map_to_image_label_given_pixel = functools.partial(map_to_image_label,
+					pixel=params['pixel'])
+				valid_dataset = tf.data.Dataset.from_tensor_slices(valid_fold_data)
+				valid_dataset = valid_dataset.map(map_to_image_label_given_pixel)
+				valid_dataset = valid_dataset.batch(len(valid_fold_data))
+				return valid_dataset
+			return Kfold_input_fn
+	else:
+		Kfold_input_fn_creater = None
+
 
 	# Build an iterator over the heldout set (shifted distribution).
 	def eval_input_fn_creater(py, params):
@@ -432,4 +481,4 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 			return eval_shift_dataset
 		return eval_input_fn
 
-	return train_input_fn, valid_input_fn, eval_input_fn_creater
+	return training_data_size, train_input_fn, valid_input_fn, Kfold_input_fn_creater, eval_input_fn_creater

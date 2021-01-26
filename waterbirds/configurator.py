@@ -19,114 +19,128 @@ import itertools
 import re
 
 
-def waterbirds_correlations_slabs():
+def configure_slabs(py0, py1_y0, logit):
 	"""Creates hyperparameters for correlations experiment for SLABS model.
 
 	Returns:
 		Iterator with all hyperparameter combinations
 	"""
-
-	# ---- actual slabs
-	all_sweeps = []
-
 	param_dict = {
-		'random_seed': [1],
+		'random_seed': [i for i in range(10)],
 		'pflip0': [0.01],
 		'pflip1': [0.01],
-		'py0': [0.5],
-		'py1_y0': [0.95],
-		'pixel': [224],
+		'py0': [py0],
+		'py1_y0': [py1_y0],
+		'pixel': [128],
 		'l2_penalty': [0.0],
 		'dropout_rate': [0.0],
 		'embedding_dim': [10],
-		'sigma': [1.0],
-		# 'alpha': [1e-3, 1e-1, 1, 1e1, 1e3],
-		'alpha': [1, 1e3],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
-		'weighted_mmd': ["False"],
-		"balanced_weights": ["False"],
-		'minimize_logits': [False]
-	}
-
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	sweep0 = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-	param_dict = {
-		'random_seed': [1],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		'py0': [0.5],
-		'py1_y0': [0.95],
-		'pixel': [224],
-		'l2_penalty': [0.0001],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [10.0],
-		# 'alpha': [1e-3, 1e-1, 1, 1e1, 1e3],
-		'alpha': [0.0],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
-		'weighted_mmd': ["False"],
-		"balanced_weights": ["False"], 
-		"minimize_logits": [False]
-	}
-
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	sweep1 = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-	param_dict = {
-		'random_seed': [1],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		'py0': [0.5],
-		'py1_y0': [0.95],
-		'pixel': [224],
-		'l2_penalty': [0.0],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [1.0],
-		# 'alpha': [1e-3, 1e-1, 1, 1e1, 1e3],
-		'alpha': [1, 1e3],
+		'sigma': [1.0, 10.0, 100.0, 1000.0],
+		'alpha': [1e3],
 		"architecture": ["pretrained_resnet"],
 		"batch_size": [64],
 		'weighted_mmd': ["True"],
-		"balanced_weights": ["False"],
-		"minimize_logits": [False]
+		"balanced_weights": ["True"],
+		'minimize_logits': [logit]
 	}
 
+	print(param_dict)
 	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
 	keys, values = zip(*param_dict_ordered.items())
-	sweep2 = [dict(zip(keys, v)) for v in itertools.product(*values)]
-	sweep = sweep0 + sweep2
+	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
 	return sweep
 
 
-def waterbirds_correlations_unweighted_slabs():
+def configure_unweighted_slabs(py0, py1_y0, logit):
 	"""Creates hyperparameters for correlations experiment for SLABS model.
 
 	Returns:
 		Iterator with all hyperparameter combinations
 	"""
-
-
-	# ---- actual slabs
 	param_dict = {
-		'random_seed': [i for i in range(5)],
+		'random_seed': [i for i in range(10)],
 		'pflip0': [0.01],
 		'pflip1': [0.01],
-		# 'py1_y0': [0.5],
-		'pixel': [64],
+		'py0': [py0],
+		'py1_y0': [py1_y0],
+		'pixel': [128],
 		'l2_penalty': [0.0],
 		'dropout_rate': [0.0],
 		'embedding_dim': [10],
-		'sigma': [0.1, 1.0, 10.0, 100.0, 500.0],
-		'alpha': [0.1, 1.0, 10.0, 100.0, 300.0, 500.0, 1e5],
+		'sigma': [1.0, 10.0, 100.0, 1000.0],
+		'alpha': [1e3],
 		"architecture": ["pretrained_resnet"],
-		"batch_size": [128],
-		'weighted_mmd': ["False"]
+		"batch_size": [64],
+		'weighted_mmd': ["False"],
+		"balanced_weights": ["False"],
+		'minimize_logits': [logit]
+	}
+
+	print(param_dict)
+	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
+	keys, values = zip(*param_dict_ordered.items())
+	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
+
+	return sweep
+
+
+def configure_simple_baseline(py0, py1_y0):
+	"""Creates hyperparameters for the correlations experiment for baseline.
+
+	Returns:
+		Iterator with all hyperparameter combinations
+	"""
+
+	param_dict = {
+		'random_seed': [i for i in range(10)],
+		'pflip0': [0.01],
+		'pflip1': [0.01],
+		'py0': [py0],
+		'py1_y0': [py1_y0],
+		'pixel': [128],
+		'l2_penalty': [0.0, 0.0001],
+		'dropout_rate': [0.0],
+		'embedding_dim': [10],
+		'sigma': [10.0],
+		'alpha': [0.0],
+		"architecture": ["pretrained_resnet"],
+		"batch_size": [64],
+		'weighted_mmd': ["False"],
+		"balanced_weights": ["False"],
+		'minimize_logits': ["False"]
+	}
+
+	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
+	keys, values = zip(*param_dict_ordered.items())
+	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
+
+	return sweep
+
+
+def configure_weighted_baseline(py0, py1_y0):
+	"""Creates hyperparameters for the correlations experiment for baseline.
+
+	Returns:
+		Iterator with all hyperparameter combinations
+	"""
+
+	param_dict = {
+		'random_seed': [i for i in range(10)],
+		'pflip0': [0.01],
+		'pflip1': [0.01],
+		'py0': [py0],
+		'py1_y0': [py1_y0],
+		'pixel': [128],
+		'l2_penalty': [0.0, 0.0001],
+		'dropout_rate': [0.0],
+		'embedding_dim': [10],
+		'sigma': [10.0],
+		'alpha': [0.0],
+		"architecture": ["pretrained_resnet"],
+		"batch_size": [64],
+		'weighted_mmd': ["True"],
+		"balanced_weights": ["True"],
+		'minimize_logits': ["False"]
 	}
 
 	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
@@ -135,131 +149,7 @@ def waterbirds_correlations_unweighted_slabs():
 	return sweep
 
 
-def waterbirds_correlations_simple_baseline():
-	"""Creates hyperparameters for the correlations experiment for baseline.
-
-	Returns:
-		Iterator with all hyperparameter combinations
-	"""
-
-	param_dict = {
-		'random_seed': [0],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		'py0': [0.8],
-		'py1_y0': [0.95],
-		'pixel': [224],
-		'l2_penalty': [0.0],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [100.0],
-		'alpha': [0.0],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
-		'weighted_mmd': ["False"]
-	}
-
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	uw_sweep0 = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-	param_dict = {
-		'random_seed': [0],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		'py0': [0.8],
-		'py1_y0': [0.95],
-		'pixel': [224],
-		'l2_penalty': [0.0, 0.0001, 1.0],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [100.0],
-		'alpha': [0.0],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
-		'weighted_mmd': ["True"]
-	}
-
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	w_sweep0 = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-	param_dict = {
-		'random_seed': [0],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		'py0': [0.5],
-		'py1_y0': [0.5],
-		'pixel': [224],
-		'l2_penalty': [0.0, 0.0001, 1.0],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [100.0],
-		'alpha': [0.0],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
-		'weighted_mmd': ["False"]
-	}
-
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	uw_sweep1 = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-	param_dict = {
-		'random_seed': [0],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		'py0': [0.5],
-		'py1_y0': [0.5],
-		'pixel': [224],
-		'l2_penalty': [0.0, 0.0001, 1.0],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [100.0],
-		'alpha': [0.0],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
-		'weighted_mmd': ["True"]
-	}
-
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	w_sweep1 = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-	sweep = uw_sweep0
-	return sweep
-
-
-def waterbirds_correlations_weighted_baseline():
-	"""Creates hyperparameters for the correlations experiment for baseline.
-
-	Returns:
-		Iterator with all hyperparameter combinations
-	"""
-
-	param_dict = {
-		'random_seed': [i for i in range(5)],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		# 'py1_y0': [0.5],
-		'pixel': [64],
-		'l2_penalty': [0.0],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [100.0],
-		'alpha': [0.0],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [128],
-		'weighted_mmd': ["True"]
-	}
-
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
-	return sweep
-
-
-def waterbirds_correlations_oracle_aug(aug_prop):
+def configure_oracle_aug(aug_prop):
 	"""Creates hyperparameters for the correlations experiment for baseline.
 	Args:
 		aug_prop: float, proportion of training data to use for augmentation
@@ -317,9 +207,13 @@ def get_sweep(experiment, model, aug_prop=-1.0):
 	Returns:
 		Iterator with all hyperparameter combinations
 	"""
-	implemented_models = ['slabs', 'unweighted_slabs', 'simple_baseline',
-	'weighted_baseline', 'oracle_aug']
-	implemented_experiments = ['correlation']
+	implemented_models = [
+		'slabs', 'slabs_logit',
+		'unweighted_slabs', 'unweighted_slabs_logit',
+		'simple_baseline','weighted_baseline',
+		'oracle_aug']
+
+	implemented_experiments = ['5090', '5050', '8090']
 
 	if model[:10] == "oracle_aug" and len(model) > 10:
 		match = re.match(r'.*(\_)', model)
@@ -337,13 +231,24 @@ def get_sweep(experiment, model, aug_prop=-1.0):
 		raise ValueError('Augmentation proportion is needed for augmentation'
 											' baselines')
 
-	if experiment == 'correlation' and model == 'slabs':
-		return waterbirds_correlations_slabs()
-	if experiment == 'correlation' and model == 'unweighted_slabs':
-		return waterbirds_correlations_unweighted_slabs()
-	if experiment == 'correlation' and model == 'simple_baseline':
-		return waterbirds_correlations_simple_baseline()
-	if experiment == 'correlation' and model == 'weighted_baseline':
-		return waterbirds_correlations_weighted_baseline()
-	if experiment == 'correlation' and model == 'oracle_aug':
-		return waterbirds_correlations_oracle_aug(aug_prop)
+	py0 = float(experiment[:2]) / 100.0
+	py1_y0 = float(experiment[2:]) / 100.0
+
+	if model == 'slabs':
+		return configure_slabs(py0, py1_y0, logit='False')
+
+	if model == 'slabs_logit':
+		return configure_slabs(py0, py1_y0, logit='True')
+
+	if model == 'unweighted_slabs':
+		return configure_unweighted_slabs(py0, py1_y0, logit='False')
+
+	if model == 'unweighted_slabs_logit':
+		return configure_unweighted_slabs(py0, py1_y0, logit='True')
+
+	if model == 'simple_baseline':
+		return configure_simple_baseline(py0, py1_y0)
+
+	if model == 'weighted_baseline':
+		return configure_weighted_baseline(py0, py1_y0)
+

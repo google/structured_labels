@@ -31,16 +31,20 @@ flags.DEFINE_float('pflip0', 0.01, 'proportion of y0 randomly flipped (noise).')
 flags.DEFINE_float('pflip1', 0.01, 'proportion of y1 randomly flipped (noise).')
 flags.DEFINE_float('oracle_prop', 0.0,
 										'proportion of training data to use for oracle augmentation.')
-
+flags.DEFINE_integer('pixel', 64, 'number of pixels in the image (i.e., res).')
+flags.DEFINE_integer('Kfolds', 0, 'number of folds (i.e., batches) in validation set.'
+	'If 0, it will be determined by batch_size')
 
 flags.DEFINE_string('exp_dir', '/data/ddmg/slabs/dummy/',
 										'Directory to save trained model in.')
 flags.DEFINE_string('architecture', 'pretrained_resnet',
 										'Architecture to use for training.')
-flags.DEFINE_integer('pixel', 64, 'number of pixels in the image (i.e., res).')
 flags.DEFINE_integer('batch_size', 32, 'batch size.')
-flags.DEFINE_integer('training_steps', 11050,
-										'number of estimator training steps.')
+flags.DEFINE_integer('num_epochs', 200, 'Number of epochs.')
+flags.DEFINE_integer('training_steps', 0, 'number of estimator training steps.'
+										' If non-zero over rides the automatic value'
+										' determined by num_epochs and batch_size')
+
 flags.DEFINE_float('alpha', 1.0, 'Value for the cross prediction penelty')
 flags.DEFINE_float('sigma', 1.0, 'Value for the MMD kernel bandwidth.')
 flags.DEFINE_string('weighted_mmd', 'False',
@@ -48,15 +52,16 @@ flags.DEFINE_string('weighted_mmd', 'False',
 flags.DEFINE_string('balanced_weights', 'True',
 											'balance weights? aka add numerator.')
 
+
 flags.DEFINE_float('dropout_rate', 0.0, 'Value for drop out rate')
 flags.DEFINE_float('l2_penalty', 0.0,
 									'L2 regularization penalty for final layer')
 flags.DEFINE_integer('embedding_dim', 1000,
 										'Dimension for the final embedding.')
 flags.DEFINE_integer('random_seed', 0, 'random seed for tensorflow estimator')
+
 flags.DEFINE_string('minimize_logits', 'False',
 		'compute mmd wrt to logits if true and embedding if false.')
-
 flags.DEFINE_string('cleanup', 'False',
 		'remove tensorflow artifacts after training to reduce memory usage.')
 flags.DEFINE_string('gpuid', '0', 'Gpu id to run the model on.')
@@ -79,6 +84,7 @@ def main(argv):
 			py1_y0_s=py1_y0_shift_list,
 			pflip0=FLAGS.pflip0,
 			pflip1=FLAGS.pflip1,
+			Kfolds=FLAGS.Kfolds,
 			oracle_prop=FLAGS.oracle_prop,
 			random_seed=FLAGS.random_seed)
 
@@ -90,7 +96,9 @@ def main(argv):
 		architecture=FLAGS.architecture,
 		training_steps=FLAGS.training_steps,
 		pixel=FLAGS.pixel,
+		num_epochs=FLAGS.num_epochs,
 		batch_size=FLAGS.batch_size,
+		Kfolds=FLAGS.Kfolds,
 		alpha=FLAGS.alpha,
 		sigma=FLAGS.sigma,
 		balanced_weights=FLAGS.balanced_weights,

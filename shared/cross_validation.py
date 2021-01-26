@@ -81,16 +81,12 @@ def import_results(configs, base_dir):
 	return res
 
 
-def get_final_results(results):
+def reshape_results(results):
 	shift_columns = [col for col in results.columns if 'shift' in col]
-
-	shift_accuracy_loss_columns = [
-		col for col in shift_columns if ('loss' in col) or ('accuracy' in col) or ('auc' in col)
+	shift_metrics_columns = [
+		col for col in shift_columns if ('pred_loss' in col) or ('accuracy' in col) or ('auc' in col)
 	]
-	results = results[shift_accuracy_loss_columns]
-	results = results.agg({
-		col: ['mean', 'std'] for col in shift_accuracy_loss_columns
-	})
+	results = results[shift_metrics_columns]
 	results = results.transpose()
 	results['py1_y0_s'] = results.index.str[6:10]
 	results['py1_y0_s'] = results.py1_y0_s.str.replace('_', '')
@@ -105,343 +101,95 @@ def get_final_results(results):
 	results_auc = results_auc.rename(columns={
 		col: f'auc_{col}' for col in results_auc.columns if col != 'py1_y0_s'
 	})
-
-	results_loss = results[(results.index.str.contains('loss'))]
+	results_loss = results[(results.index.str.contains('pred_loss'))]
 	results_loss = results_loss.rename(columns={
 		col: f'loss_{col}' for col in results_loss.columns if col != 'py1_y0_s'
 	})
 
-
 	results_final = results_accuracy.merge(results_loss, on=['py1_y0_s'])
 	results_final = results_final.merge(results_auc, on=['py1_y0_s'])
+	print(results_final)
 	return results_final
 
 
-def get_optimal_model_results(mode, configs, base_dir, hparams, equivalent=True,
-	pval=False):
+def get_optimal_model_results(mode, configs, base_dir, hparams,
+	equivalent=True, pval=False):
 
 	if mode not in ['classic', 'two_step']:
 		raise NotImplementedError('Can only run classic or two_step modes')
-
-	# if mode == 'two_step' and sorted(hparams) == ['alpha', 'sigma']:
-	# 	optimal_model_results = get_optimal_model_two_step(configs, base_dir, pval)
-	# 	return optimal_model_results
-
-	if mode == "two_step":
-		if sorted(hparams) != ['alpha', 'dropout_rate', 'embedding_dim', 'l2_penalty', 'sigma']:
-			raise NotImplementedError('Have not implemented these hyperparams yet!')
-		optimal_model_results = get_optimal_model_two_step(configs,
-			base_dir, pval)
-		return optimal_model_results
-
-	optimal_model_results = get_optimal_model_classic(configs, base_dir, hparams)
-	return optimal_model_results
+	if mode == 'classic':
+		return get_optimal_model_classic(configs, None, base_dir, hparams)
+	return get_optimal_model_two_step(configs, base_dir, hparams)
 
 
-def get_optimal_model_classic(configs, base_dir, hparams):
-	res_all = import_results(configs, base_dir)
+def get_optimal_model_two_step(configs, base_dir, hparams, epsilon=1e-2):
+	all_results = import_results(configs, base_dir)
+	# -- get those with validation mmd < epsilon
+	columns_to_keep = hparams + ['random_seed', 'validation_mmd']
+	best_mmd = all_results[columns_to_keep]
+	# for runs where the min validation mmd > epsilon, use their min possible
+	best_mmd = best_mmd.groupby('random_seed').validation_mmd.min()
+	best_mmd = best_mmd.to_frame()
 
-	# ---get optimal hyperparams
-	columns_to_keep = hparams + ['validation_loss']
-	res_hparams = res_all[columns_to_keep]
-	res_hparams = res_hparams.groupby(hparams).agg({'validation_loss': ['mean']})
-	res_hparams.reset_index(inplace=True)
-	res_hparams.columns = [
-		'_'.join(col).strip() for col in res_hparams.columns.values
-	]
-	res_hparams.rename({f'{hparam}_': hparam for hparam in hparams}, axis=1,
+	best_mmd.rename(columns={'validation_mmd': 'min_validation_mmd'},
 		inplace=True)
-	best_loss = res_hparams.validation_loss_mean.min()
-	res_hparams = res_hparams[(res_hparams.validation_loss_mean == best_loss)]
-	res_hparams = res_hparams[hparams]
-	print(res_hparams)
-	res = res_all.merge(res_hparams, on=hparams)
-	res_final = get_final_results(res)
+	filtered_results = all_results.merge(best_mmd, on='random_seed')
+
+	# filtered_results = filtered_results[
+	# 	(filtered_results.validation_mmd - filtered_results.min_validation_mmd) <= epsilon
+	# ]
+
+	filtered_results = filtered_results[(filtered_results.validation_mmd <= epsilon)]
+	# filtered_results['min_validation_mmd'] = np.where(
+	# 	filtered_results['min_validation_mmd'] > epsilon, 
+	# 	epsilon, filtered_results['min_validation_mmd']
+	# )
+
+	filtered_results.reset_index(drop=True, inplace=True)
+
+	filtered_results.drop('min_validation_mmd', axis = 1, inplace=True)
+	assert len(list(set(filtered_results.columns.tolist()) - set(all_results.columns.tolist()))) == 0
+	assert len(list(set(all_results.columns.tolist()) - set(filtered_results.columns.tolist()))) == 0
 
 
-	res_per_run_final = []
-	for rs in res.random_seed.unique():
-		res_rs = res[(res.random_seed == rs)]
-		res_rs = get_final_results(res_rs)
-		std_cols = [col for col in res_rs if 'std' in col]
-		res_rs.drop(std_cols, axis=1, inplace=True)
-		res_rs['random_seed'] = rs
-		res_per_run_final.append(res_rs)
-	res_per_run_final = pd.concat(res_per_run_final, axis=0).reset_index(drop=True)
-
-	return res_final, res_per_run_final
+	return get_optimal_model_classic(None, filtered_results, base_dir, hparams)
 
 
-def get_optimal_sigma(validation_data):
-	columns_to_keep = ['alpha', 'sigma', 'validation_mmd']
-	res_sigma = validation_data[columns_to_keep]
-	res_sigma = res_sigma.groupby(['alpha', 'sigma']).agg(
-		{'validation_mmd': ['mean']})
-	res_sigma.reset_index(inplace=True)
-	res_sigma.columns = [
-		'_'.join(col).strip() for col in res_sigma.columns.values
-	]
-	res_sigma.rename(
-		{f'{hparam}_': hparam for hparam in ['alpha', 'sigma']}, axis=1,
-		inplace=True)
+def get_optimal_model_classic(configs, filtered_results, base_dir, hparams):
+	if ((configs is None) and (filtered_results is None)):
+		raise ValueError("Need either configs or table of results_dict")
 
-	# TODO: this assumes that each sigma has the max value of alpha
-	# for arbitrarily large alphas, if mmd > 0, then sigma is not good
-	res_sigma['min_mmd_for_sigma'] = res_sigma.validation_mmd_mean
-	res_sigma['min_mmd_for_sigma'] = res_sigma.groupby('sigma')['min_mmd_for_sigma'].transform('min')
-
-	min_validation_mmd = max(1e-3, np.min(res_sigma.validation_mmd_mean))
-	res_sigma['zero_at_max_alpha'] = np.where(res_sigma['min_mmd_for_sigma'] <= min_validation_mmd,
-		1, 0)
-	res_sigma['zero_at_max_alpha'] = res_sigma.groupby('sigma')['zero_at_max_alpha'].transform('max')
-	res_sigma = res_sigma[(res_sigma.zero_at_max_alpha == 1)].reset_index(drop=True)
-	print(res_sigma.sort_values(['sigma', 'alpha']))
-	res_sigma.drop(['zero_at_max_alpha', 'min_mmd_for_sigma'], axis=1,
-		inplace=True)
-
-	# TODO this needs to be done for each sigma separately
-	# if res_sigma.alpha.min() == res_sigma.alpha.max():
-		# print(res_sigma)
-		# raise ValueError('Need at least 2 unique values of alpha for')
-	res_sigma = res_sigma[((res_sigma.alpha == res_sigma.alpha.min()) | (
-		res_sigma.alpha == res_sigma.alpha.max()))]
-	res_sigma = res_sigma.groupby('sigma')['validation_mmd_mean'].agg(
-		np.ptp).reset_index()
-	min_validation_mmd = min(1e-3, np.max(res_sigma.validation_mmd_mean))
-	print(min_validation_mmd)
-	print(res_sigma)
-	res_sigma = res_sigma[(res_sigma.validation_mmd_mean >= min_validation_mmd)]
-	optimal_sigma = np.min(res_sigma.sigma)
-	return optimal_sigma
-
-
-def get_equivalent_hparams(validation_data, hparams, pval):
-	if 'validation_loss_mean' not in validation_data.columns.tolist():
-		columns_to_keep = hparams + ['validation_loss', 'validation_mmd']
-		validation_data = validation_data[columns_to_keep]
-		validation_data['count'] = 1
-
-		validation_data = validation_data.groupby(hparams).agg(
-			{
-				'validation_loss': ['mean', 'std'],
-				'validation_mmd': ['mean', 'std'],
-				'count': ['sum']
-			}).reset_index()
-		validation_data.columns = [
-			'_'.join(col).strip() for col in validation_data.columns.values
-		]
-		validation_data.rename({f'{hparam}_': hparam for hparam in hparams},
-			axis=1, inplace=True)
-
-	validation_data = validation_data.sort_values(
-		'validation_loss_mean').reset_index()
-
-	min_val_loss = validation_data.validation_loss_mean[0]
-	min_val_count = validation_data.count_sum[0]
-	if pval:
-		min_val_loss_std = validation_data.validation_loss_std[0]
-		pvals = [ttest(
-			mean1=min_val_loss, std1=min_val_loss_std, nobs1=min_val_count,
-			mean2=validation_data.validation_loss_mean[i],
-			std2=validation_data.validation_loss_std[i],
-			nobs2=validation_data.count_sum[i]
-		).pvalue for i in range(validation_data.shape[0])]
-		validation_data['pvals'] = pvals
-		validation_data['min_validation_loss'] = np.where(
-			validation_data.pvals > 0.05, 1, 0)
-		validation_data.drop('pvals', axis=1, inplace=True)
+	if configs is not None:
+		all_results = import_results(configs, base_dir)
 	else:
-		min_val_loss_ste = validation_data.validation_loss_std[0] / np.sqrt(
-			min_val_count)
-		validation_data['min_validation_loss'] = np.where(
-			validation_data.validation_loss_mean <= min_val_loss + min_val_loss_ste,
-			1, 0)
-	if validation_data.min_validation_loss.max() == 0:
-		validation_data.min_validation_loss.loc[0] = 1
-	validation_data = validation_data[(validation_data.min_validation_loss == 1)]
-	equivalent_hparams = validation_data[hparams + ['validation_mmd_mean', 'validation_mmd_std']]
-	return equivalent_hparams
+		all_results = filtered_results.copy()
 
 
-def get_optimal_model_two_step(configs, base_dir, pval):
-	print("starting import")
-	res_all = import_results(configs, base_dir)
+	# ---get optimal hyperparams based on prediction loss
+	columns_to_keep = hparams + ['random_seed', 'validation_pred_loss']
+	best_loss = all_results[columns_to_keep]
+	best_loss = best_loss.groupby('random_seed').validation_pred_loss.min()
+	best_loss = best_loss.to_frame()
 
-	print("get sigma")
-	# --- get optimal sigma
-	optimal_sigma = get_optimal_sigma(res_all)
-
-	# --- get optimal alpha
-	print("get alpha")
-	res_alpha = res_all[(res_all.sigma == optimal_sigma)].reset_index(drop=True)
-
-	equivalent_hparams = get_equivalent_hparams(res_alpha, ['alpha', 'sigma'],
-		pval)
-	# equivalent_hparams = res_alpha
-	optimal_alpha = equivalent_hparams.alpha.max()
-	print("get final")
-	# --- get the optimal model results
-	res = res_all[((res_all.sigma == optimal_sigma) & (
-		res_all.alpha == optimal_alpha))].reset_index(drop=True)
-	print(optimal_sigma, optimal_alpha)
-	res_final = get_final_results(res)
-
-	# TODO: check if this is ok
-	res_per_run_final = []
-	for rs in res.random_seed.unique():
-		res_rs = res[(res.random_seed == rs)]
-		res_rs = get_final_results(res_rs)
-		std_cols = [col for col in res_rs if 'std' in col]
-		res_rs.drop(std_cols, axis=1, inplace=True)
-		res_rs['random_seed'] = rs
-		res_per_run_final.append(res_rs)
-	res_per_run_final = pd.concat(res_per_run_final, axis=0).reset_index(drop=True)
-	return res_final, res_per_run_final
-
-
-def get_optimal_model_with_lambda_two_step_elaborate(configs, base_dir, pval):
-
-	res_all = import_results(configs, base_dir)
-
-	lambda_combinations = res_all[['dropout_rate', 'l2_penalty',
-		'embedding_dim']].copy()
-	lambda_combinations.drop_duplicates(inplace=True)
-	lambda_combinations.reset_index(inplace=True, drop=True)
-
-	best_alpha_sigmas = []
-	for i in range(lambda_combinations.shape[0]):
-		lambda_vals = lambda_combinations.iloc[[i]].copy()
-
-		# -- get all the validation results for this lambda
-		res_lambda = res_all.merge(lambda_vals, on=lambda_vals.columns.tolist())
-
-		# -- get best sigma for this lambda
-		sigma_lambda = get_optimal_sigma(res_lambda)
-
-		# -- get best alpha for this lambda
-		res_alpha_lambda = res_lambda[(
-			res_lambda.sigma == sigma_lambda)].reset_index(drop=True)
-		if res_alpha_lambda.shape[0] == 0:
-			continue
-
-		equivalent_alphas_lambda = get_equivalent_hparams(res_alpha_lambda,
-			['alpha', 'sigma'], pval)
-		alpha_lambda = equivalent_alphas_lambda.alpha.max()
-
-		lambda_vals['sigma'] = sigma_lambda
-		lambda_vals['alpha'] = alpha_lambda
-		best_alpha_sigmas.append(lambda_vals)
-
-	# -- get all the data for lambda, alpha_lambda, sigma_lambda
-	best_alpha_sigmas = pd.concat(best_alpha_sigmas, axis=0)
-
-	# --- get the equivalent models
-	res_lambda_sigma_alpha = res_all.merge(best_alpha_sigmas,
-		on=best_alpha_sigmas.columns.tolist()).reset_index()
-
-	equivalent_lambda = get_equivalent_hparams(res_lambda_sigma_alpha,
-			['alpha', 'sigma', 'dropout_rate', 'l2_penalty', 'embedding_dim'], pval)
-	equivalent_lambda['ratio'] = equivalent_lambda.alpha / equivalent_lambda.sigma
-	print(equivalent_lambda)
-	best_lambda = equivalent_lambda[(
-		equivalent_lambda.ratio == equivalent_lambda.ratio.max())]
-	best_lambda = best_lambda[['dropout_rate', 'l2_penalty', 'embedding_dim',
-		'alpha', 'sigma']].reset_index(drop=True)
-	print(best_lambda)
-	if best_lambda.shape[0] > 1:
-		random_model = np.random.choice(best_lambda.shape[0], size=1).tolist()
-		best_lambda = best_lambda.loc[random_model]
-		print(best_lambda)
-
-	res = res_all.merge(best_lambda, on=best_lambda.columns.tolist())
-	res_final = get_final_results(res)
-	return res_final
-
-
-def get_optimal_model_with_lambda_two_step(configs, base_dir, equivalent, pval):
-
-	hparams = ['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
-		'embedding_dim']
-	res_all = import_results(configs, base_dir)
-
-	validation_data = res_all[hparams + ['validation_mmd',
-		'validation_loss']].copy()
-	validation_data['count'] = 1
-	validation_data = validation_data.groupby(hparams).agg(
-		{
-			'validation_loss': ['mean', 'std'],
-			'validation_mmd': ['mean', 'std'],
-			'count': ['sum']
-		}).reset_index()
-
-
-	validation_data.columns = [
-		'_'.join(col).strip() for col in validation_data.columns.values
+	best_loss.reset_index(drop=False, inplace=True)
+	best_loss.rename(columns={'validation_pred_loss': 'min_validation_pred_loss'},
+		inplace=True)
+	all_results = all_results.merge(best_loss, on='random_seed')
+	all_results = all_results[
+		(all_results.validation_pred_loss == all_results.min_validation_pred_loss)
 	]
-	validation_data.rename({f'{hparam}_': hparam for hparam in hparams},
-		axis=1, inplace=True)
-	print(validation_data[['alpha', 'sigma', 'validation_loss_mean', 'validation_mmd_mean']])
-	# validation_data = validation_data[(validation_data.alpha == 1e5)]
-	# validation_data = validation_data[
-	# ((validation_data.validation_mmd_mean - validation_data.validation_mmd_std) <= 0)]
 
+	# --- get the final results over all runs
+	mean_results = all_results.mean(axis=0).to_frame()
+	mean_results.rename(columns={0: 'mean'}, inplace=True)
+	std_results = all_results.std(axis=0).to_frame()
+	std_results.rename(columns={0: 'std'}, inplace=True)
+	final_results = mean_results.merge(
+		std_results, left_index=True, right_index=True
+	)
 
-	# pvals = [ttest(
-	# 	mean1=0, std1=1e-5, nobs1=10,
-	# 	mean2=validation_data.validation_mmd_mean[i],
-	# 	std2=validation_data.validation_mmd_std[i],
-	# 	nobs2=validation_data.count_sum[i]
-	# ).pvalue for i in range(validation_data.shape[0])]
-	# validation_data['pvals'] = pvals
-	# validation_data = validation_data[(validation_data.pvals > 0.05)]
-	# validation_data.drop('pvals', axis =1, inplace = True)
+	final_results = final_results.transpose()
+	final_results_clean = reshape_results(final_results)
 
-	validation_data.reset_index(drop=True, inplace=True)
-
-
-	# print(validation_data[['alpha', 'sigma', 'embedding_dim', 'validation_mmd_mean']])
-
-	# ---- IF EQUIVALENT
-	# if equivalent
-
-	equivalent_models = get_equivalent_hparams(validation_data,
-		['alpha', 'sigma', 'dropout_rate', 'l2_penalty', 'embedding_dim'], pval=pval)
-	# equivalent_models['ratio'] = equivalent_models.alpha / equivalent_models.sigma
-	# print(equivalent_models)
-	best_lambda = equivalent_models[(
-		equivalent_models.validation_mmd_mean == equivalent_models.validation_mmd_mean.min())]
-
-	# # ----IF NOT EQUIVALENT
-	# else:
-	# 	best_lambda = validation_data[
-	# 		(validation_data.validation_loss_mean == validation_data.validation_loss_mean.min())]
-
-	# ------
-	best_lambda = best_lambda[['dropout_rate', 'l2_penalty', 'embedding_dim',
-		'alpha', 'sigma']].reset_index(drop=True)
-
-	print(best_lambda)
-	if best_lambda.shape[0] > 1:
-		best_lambda = best_lambda[(best_lambda.embedding_dim == best_lambda.embedding_dim.max())]
-		best_lambda.reset_index(drop=True, inplace=True)
-
-	if best_lambda.shape[0] > 1:
-		random_model = np.random.choice(best_lambda.shape[0], size=1).tolist()
-		best_lambda = best_lambda.loc[random_model]
-		print(best_lambda)
-
-	res = res_all.merge(best_lambda, on=best_lambda.columns.tolist())
-	res_final = get_final_results(res)
-
-	res_per_run_final = []
-	for rs in res.random_seed.unique():
-		res_rs = res[(res.random_seed == rs)]
-		res_rs = get_final_results(res_rs)
-		std_cols = [col for col in res_rs if 'std' in col]
-		res_rs.drop(std_cols, axis=1, inplace=True)
-		res_rs['random_seed'] = rs
-		res_per_run_final.append(res_rs)
-	res_per_run_final = pd.concat(res_per_run_final, axis=0).reset_index(drop=True)
-
-	return res_final, res_per_run_final
+	return final_results_clean, None
 

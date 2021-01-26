@@ -13,19 +13,24 @@
 # limitations under the License.
 
 """Main training protocol used for structured label prediction models."""
-import glob
 import os
 import pickle
 import copy
+import gc
 
 from shared import architectures
-from shared import losses
+from shared import train_utils
+from shared import evaluation_metrics
+from shared import profiler
 
+import pandas as pd
 import tensorflow as tf
-from tensorflow.python.ops import array_ops
-from tensorflow.python.framework import dtypes
+from tensorflow.python.ops import array_ops, variable_scope
+from tensorflow.python.framework import ops, dtypes
 
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+
+SIGMA_LIST = [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1, 1e2, 1e3]
 
 
 class EvalCheckpointSaverListener(tf.estimator.CheckpointSaverListener):
@@ -36,148 +41,99 @@ class EvalCheckpointSaverListener(tf.estimator.CheckpointSaverListener):
 		self.name = name
 
 	def after_save(self, session, global_step):
-		print("RUNNING EVAL: {}".format(self.name))
-		self.estimator.evaluate(self.input_fn, name=self.name)
-		print("FINISHED EVAL: {}".format(self.name))
+		del session, global_step
+		if self.name == "train":
+			self.estimator.evaluate(self.input_fn, name=self.name, steps=1)
+		else:
+			self.estimator.evaluate(self.input_fn, name=self.name)
+
+def get_or_create_sigma_variable(inital_sigma):
+	graph = ops.get_default_graph()
+	sigma_variable = graph.get_collection(ops.GraphKeys.GLOBAL_VARIABLES,
+		'sigma_tensor')
+
+	# -- if sigma already exists, return it
+	if len(sigma_variable) == 1:
+		return sigma_variable[0]
+
+	# -- if there are multiple sigmas, that's bad!
+	elif len(sigma_variable) > 1:
+		raise RuntimeError("There are multiple sigma variable in this graph!")
+
+	# -- if no sigma exists, create it
+	return variable_scope.get_variable(
+		'sigma_tensor',
+		initializer=inital_sigma,
+		dtype=dtypes.float32,
+		trainable=False,
+		collections=['sigma_tensor', ops.GraphKeys.GLOBAL_VARIABLES],
+		use_resource=True)
 
 
-def auroc(labels, predictions):
-	""" Computes AUROC """
-	auc_metric = tf.keras.metrics.AUC(name="auroc")
-	auc_metric.update_state(y_true=labels, y_pred=predictions)
-	return auc_metric
+class DynamicSigmaHook(tf.estimator.SessionRunHook):
+	# https://github.com/tensorflow/tensorflow/blob/89310df4bc576e
+	# e951b0d86fe61035e990483a2b/tensorflow/python/training/basic_session_run_hooks.py#L325
+	def __init__(self, estimator, input_fn_creater, params, epoch_size, sigma_value):
+		self.estimator = estimator
+		self.input_fn_creater = input_fn_creater
+		self.params = params
+		self.sigma = sigma_value
+		self.epoch_size = epoch_size
 
-# def compute_mean_predictions(labels, predictions):
+	def begin(self):
+		self._global_step_tensor = tf.compat.v1.train.get_global_step()
+		self.variable = get_or_create_sigma_variable(self.sigma)
 
-def flatten_dict(dd, separator='_', prefix=''):
-	""" Flattens the dictionary with eval metrics """
-	return {
-		prefix + separator + k if prefix else k: v
-		for kk, vv in dd.items()
-		for k, v in flatten_dict(vv, separator, kk).items()
-	} if isinstance(dd,
-		dict) else {prefix: dd}
+	def _update_sigma(self, value, session):
+		return self.variable.load(value, session=session)
 
+	def after_run(self, run_context, run_values):
+		current_step_value = run_context.session.run(self._global_step_tensor)
+		if current_step_value % self.epoch_size == 0:  # epoch
+			results = []
+			for foldid in range(self.params['Kfolds']):
+				fold_results = self.estimator.evaluate(self.input_fn_creater(foldid),
+					name=f'bandwidth_selection_{foldid}')
+				if foldid == 0:
+					print(f' ########## Changing sigma at global step {current_step_value} ###########')
+					print(fold_results['global_step'])
 
-def cleanup_directory(directory):
-	"""Deletes all files within directory and its subdirectories.
+				fold_results = {
+					key: value for key, value in fold_results.items() if ('mmd' in key) and ('mmd' != key)
+				}
+				fold_results = pd.DataFrame(fold_results, index=[0])
+				results.append(fold_results)
 
-	Args:
-		directory: string, the directory to clean up
-	Returns:
-		None
-	"""
-	if os.path.exists(directory):
-		files = glob.glob(f"{directory}/*", recursive=True)
-		for f in files:
-			if os.path.isdir(f):
-				os.system(f"rm {f}/* ")
-			else:
-				os.system(f"rm {f}")
+			results = pd.concat(results, axis=0)
 
+			results_mean = results.mean(axis=0)
+			results_std = results.std(axis=0)
+			results_ratio = results_mean / results_std
+			results_ratio[(results_std==0)] = 0
 
-def compute_loss(labels, logits, z_pred, sample_weights,
-	sample_weights_pos, sample_weights_neg, params):
-	if sample_weights is None:
-		return compute_loss_unweighted(labels, logits, z_pred, params)
-	return compute_loss_weighted(labels, logits, z_pred,
-		sample_weights, sample_weights_pos, sample_weights_neg,  params)
+			print(results_ratio)
+			results_ratio = results_ratio[(results_ratio == results_ratio.max())]
+			print(results_ratio)
+			best_sigma = results_ratio.index.tolist()
+			best_sigma = [float(sigma_val.replace('mmd', '')) for sigma_val in best_sigma]
+			print(best_sigma)
+			best_sigma = min(best_sigma)
+			print(best_sigma)
 
-
-def compute_loss_weighted(labels, logits, z_pred, sample_weights,
-	sample_weights_pos, sample_weights_neg, params):
-	y_main = tf.expand_dims(labels[:, params["label_ind"]], axis=-1)
-
-	individual_losses = tf.keras.losses.binary_crossentropy(
-		y_main, logits, from_logits=True)
-
-	# --- Prediction loss
-	weighted_loss = sample_weights * individual_losses
-	weighted_loss = tf.math.divide_no_nan(
-		tf.reduce_sum(weighted_loss),
-		tf.reduce_sum(sample_weights)
-	)
-
-	# --- MMD loss
-	other_label_inds = [
-		lab_ind for lab_ind in range(labels.shape[1])
-		if lab_ind != params["label_ind"]
-	]
-
-	weighted_mmd_vals = []
-	for lab_ind in other_label_inds:
-		mmd_val = losses.mmd_loss(
-			embedding=z_pred,
-			auxiliary_labels=labels[:, lab_ind],
-			weights_pos=sample_weights_pos,
-			weights_neg=sample_weights_neg,
-			params=params)
-		weighted_mmd_vals.append(mmd_val[0])
-
-	weighted_mmd = tf.concat(weighted_mmd_vals, axis=0)
-
-	return weighted_loss, weighted_mmd
-
-
-def compute_loss_unweighted(labels, logits, z_pred, params):
-	y_main = tf.expand_dims(labels[:, params["label_ind"]], axis=-1)
-
-	individual_losses = tf.keras.losses.binary_crossentropy(
-		y_main, logits, from_logits=True)
-
-	# --- Prediction loss
-	unweighted_loss = tf.reduce_mean(individual_losses)
-
-	# --- MMD loss
-	other_label_inds = [
-		lab_ind for lab_ind in range(labels.shape[1])
-		if lab_ind != params["label_ind"]
-	]
-
-	unweighted_mmd_vals = []
-	for lab_ind in other_label_inds:
-		mmd_val = losses.mmd_loss(
-			embedding=z_pred,
-			auxiliary_labels=labels[:, lab_ind],
-			weights_pos=None,
-			weights_neg=None,
-			params=params)
-		unweighted_mmd_vals.append(mmd_val[0])
-
-	unweighted_mmd = tf.concat(unweighted_mmd_vals, axis=0)
-
-	return unweighted_loss, unweighted_mmd
-
+			self.sigma = best_sigma
+			self._update_sigma(self.sigma, run_context.session)
 
 def serving_input_fn():
+	"""Serving function to facilitate model saving."""
 	feat = array_ops.placeholder(dtype=dtypes.float32)
 	return tf.estimator.export.TensorServingInputReceiver(features=feat,
 		receiver_tensors=feat)
 
+
 def model_fn(features, labels, mode, params):
 	""" Main training function ."""
 
-	if params['architecture'] == 'simple':
-		net = architectures.SimpleConvolutionNet(
-			dropout_rate=params["dropout_rate"],
-			l2_penalty=params["l2_penalty"],
-			embedding_dim=params["embedding_dim"])
-	elif params['architecture'] == 'pretrained_resnet':
-		net = architectures.PretrainedResNet50(
-			embedding_dim=params["embedding_dim"],
-			l2_penalty=params["l2_penalty"])
-	elif params['architecture'] == 'pretrained_resnet_random':
-		net = architectures.RandomResNet50(
-			embedding_dim=params["embedding_dim"],
-			l2_penalty=params["l2_penalty"])
-
-	elif params['architecture'] == 'pretrained_resnet101':
-		net = architectures.PretrainedResNet101(
-			embedding_dim=params["embedding_dim"],
-			l2_penalty=params["l2_penalty"])
-
-	elif params['architecture'] == 'from_scratch_resnet':
-		net = architectures.ScratchResNet50()
+	net = architectures.create_architecture(params)
 
 	training_state = mode == tf.estimator.ModeKeys.TRAIN
 	logits, zpred = net(features, training=training_state)
@@ -201,228 +157,61 @@ def model_fn(features, labels, mode, params):
 	if labels['labels'].shape[1] != 2:
 		raise NotImplementedError('Only 2 labels supported for now')
 
-	if (params['weighted_mmd'] == 'True') and (params['balanced_weights'] == 'True'):
-		sample_weights_pos = tf.expand_dims(tf.identity(labels['balanced_weights'][:, 0]), axis=-1)
-		sample_weights_neg = tf.expand_dims(tf.identity(labels['balanced_weights'][:, 1]), axis=-1)
-		sample_weights = tf.expand_dims(tf.identity(labels['balanced_weights'][:, 2]), axis=-1)
-	else:
-		sample_weights_pos = tf.expand_dims(tf.identity(labels['unbalanced_weights'][:, 0]), axis=-1)
-		sample_weights_neg = tf.expand_dims(tf.identity(labels['unbalanced_weights'][:, 1]), axis=-1)
-		sample_weights = tf.expand_dims(tf.identity(labels['unbalanced_weights'][:, 2]), axis=-1)
-
+	sample_weights, sample_weights_pos, sample_weights_neg = train_utils.extract_weights(labels, params)
 	labels = tf.identity(labels['labels'])
 
-	y_main = tf.expand_dims(labels[:, params["label_ind"]], axis=-1)
-
 	if mode == tf.estimator.ModeKeys.EVAL:
-		if params['minimize_logits'] == 'True':
-			unweighted_loss, unweighted_mmd = compute_loss(labels, logits, logits, None,
-				None, None, params)
-			weighted_loss, weighted_mmd = compute_loss(labels, logits, logits,
-				sample_weights, sample_weights_pos, sample_weights_neg, params)
+		main_eval_metrics = {}
 
-		else:
-			unweighted_loss, unweighted_mmd = compute_loss(labels, logits, zpred, None,
-				None, None, params)
-			weighted_loss, weighted_mmd = compute_loss(labels, logits, zpred,
-				sample_weights, sample_weights_pos, sample_weights_neg, params)
-		# -- compute actual loss
-		if params['weighted_mmd'] == "True":
-			loss = weighted_loss + params["alpha"] * weighted_mmd
-		else:
-			loss = unweighted_loss + params["alpha"] * unweighted_mmd
+		# -- main loss components
+		eval_pred_loss, eval_mmd_loss = evaluation_metrics.compute_loss(labels, logits, zpred,
+			sample_weights, sample_weights_pos, sample_weights_neg, params)
 
-		extra_metric_evals = {}
-		orig_sigma = params['sigma']
-		orig_weighting = params['weighted_mmd']
-		for sigma_val in [0.1, 1, 10, 100, 1000, 10000]:
-			uw_temp_params = copy.deepcopy(params)
-			uw_temp_params['sigma'] = sigma_val
-			uw_temp_params['weighted_mmd'] = 'False'
-			_, uw_mmd_val_at_sigma = compute_loss(labels, logits, zpred, None,
-				None, None, uw_temp_params)
-			extra_metric_evals[f'uw_mmd{sigma_val}'] = tf.compat.v1.metrics.mean(
-				uw_mmd_val_at_sigma)
+		main_eval_metrics['pred_loss'] = tf.compat.v1.metrics.mean(eval_pred_loss)
+		main_eval_metrics['mmd'] = tf.compat.v1.metrics.mean(eval_mmd_loss)
 
-			w_temp_params = copy.deepcopy(params)
-			w_temp_params['sigma'] = sigma_val
-			w_temp_params['weighted_mmd'] = 'True'
-			_, w_mmd_val_at_sigma = compute_loss(labels, logits, zpred,
-				sample_weights, sample_weights_pos, sample_weights_neg,
-				w_temp_params)
-			extra_metric_evals[f'w_mmd{sigma_val}'] = tf.compat.v1.metrics.mean(
-				w_mmd_val_at_sigma)
+		loss = eval_pred_loss + params["alpha"] * eval_mmd_loss
 
-		assert params['sigma'] == orig_sigma
-		assert params['weighted_mmd'] == orig_weighting
+		# -- additional eval metrics
+		additional_eval_metrics = evaluation_metrics.get_eval_metrics_dict(
+			labels, predictions, sample_weights,
+			sample_weights_pos, sample_weights_neg, SIGMA_LIST, params)
 
-		main_1_mask = tf.where(labels[:, 0])
-		main_1_zpred = tf.gather(zpred, main_1_mask)
-		main_1_auxiliary_labels = tf.gather(labels[:, 1], main_1_mask)
-		sample_weights_pos_1 = tf.gather(sample_weights_pos, main_1_mask)
-		sample_weights_neg_1 = tf.gather(sample_weights_neg, main_1_mask)
-
-		uw_mmd_class1 = losses.mmd_loss(
-			embedding=main_1_zpred,
-			auxiliary_labels=main_1_auxiliary_labels,
-			weights_pos=None,
-			weights_neg=None,
-			params=params)
-
-		w_mmd_class_1 = losses.mmd_loss(
-			embedding=main_1_zpred,
-			auxiliary_labels=main_1_auxiliary_labels,
-			weights_pos=sample_weights_pos_1,
-			weights_neg=sample_weights_neg_1,
-			params=params)
-
-		main_0_mask = tf.where(1.0 - labels[:, 0])
-		main_0_zpred = tf.gather(zpred, main_0_mask)
-		main_0_auxiliary_labels = tf.gather(labels[:, 1], main_0_mask)
-		sample_weights_pos_0 = tf.gather(sample_weights_pos, main_0_mask)
-		sample_weights_neg_0 = tf.gather(sample_weights_neg, main_0_mask)
-
-		uw_mmd_class_0 = losses.mmd_loss(
-			embedding=main_0_zpred,
-			auxiliary_labels=main_0_auxiliary_labels,
-			weights_pos=None,
-			weights_neg=None,
-			params=params)
-
-		w_mmd_class_0 = losses.mmd_loss(
-			embedding=main_0_zpred,
-			auxiliary_labels=main_0_auxiliary_labels,
-			weights_pos=sample_weights_pos_0,
-			weights_neg=sample_weights_neg_0,
-			params=params)
-
-		labels11_mask = tf.where(labels[:, 0] * labels[:, 1])
-		mean_pred_11 = tf.gather(ypred, labels11_mask)
-		labels10_mask = tf.where(labels[:, 0] * (1.0 - labels[:, 1]))
-		mean_pred_10 = tf.gather(ypred, labels10_mask)
-		labels01_mask = tf.where((1.0 - labels[:, 0]) * labels[:, 1])
-		mean_pred_01 = tf.gather(ypred, labels01_mask)
-		labels00_mask = tf.where((1.0 - labels[:, 0]) * (1.0 - labels[:, 1]))
-		mean_pred_00 = tf.gather(ypred, labels00_mask)
-
-		extra_metric_evals['uw_mmd_class1'] = tf.compat.v1.metrics.mean(
-			uw_mmd_class1[0])
-		extra_metric_evals['w_mmd_class_1'] = tf.compat.v1.metrics.mean(
-			w_mmd_class_1[0])
-		extra_metric_evals['uw_mmd_class_0'] = tf.compat.v1.metrics.mean(
-			uw_mmd_class_0[0])
-		extra_metric_evals['w_mmd_class_0'] = tf.compat.v1.metrics.mean(
-			w_mmd_class_0[0])
-		extra_metric_evals['mean_pred_11'] = tf.compat.v1.metrics.mean(
-			mean_pred_11)
-		extra_metric_evals['mean_pred_10'] = tf.compat.v1.metrics.mean(
-			mean_pred_10)
-		extra_metric_evals['mean_pred_01'] = tf.compat.v1.metrics.mean(
-			mean_pred_01)
-		extra_metric_evals['mean_pred_00'] = tf.compat.v1.metrics.mean(
-			mean_pred_00)
-
-		eval_metrics = {
-			"accuracy":
-				tf.compat.v1.metrics.accuracy(
-					labels=y_main, predictions=predictions["classes"]),
-			"auc": auroc(labels=y_main, predictions=predictions["probabilities"]),
-
-			"unweighted_loss": tf.compat.v1.metrics.mean(unweighted_loss),
-			"weighted_loss": tf.compat.v1.metrics.mean(weighted_loss),
-
-			"unweighted_mmd": tf.compat.v1.metrics.mean(unweighted_mmd),
-			"weighted_mmd": tf.compat.v1.metrics.mean(weighted_mmd)
-		}
-
-		eval_metrics = {**eval_metrics, **extra_metric_evals}
-
-		# logging_hook = tf.estimator.LoggingTensorHook(every_n_iter=1,
-		# 	tensors={
-		# 		'labs': tf.reduce_max(labels.shape),
-		# 		'mean_class': tf.reduce_max(sample_weights.shape)
-		# 	})
+		eval_metrics = {**main_eval_metrics, **additional_eval_metrics}
 
 		return tf.estimator.EstimatorSpec(
 			mode=mode, loss=loss, train_op=None, eval_metric_ops=eval_metrics)
 
 	if mode == tf.estimator.ModeKeys.TRAIN:
-
+		gc.collect()
 		opt = tf.keras.optimizers.Adam()
 		global_step = tf.compat.v1.train.get_global_step()
+		sigma_variable = get_or_create_sigma_variable(params['sigma'])
 
 		ckpt = tf.train.Checkpoint(
 			step=global_step, optimizer=opt, net=net)
 
-		sgima_decayed = tf.convert_to_tensor(params['sigma']) * tf.cast(
-			global_step, dtype=tf.float32)
-
-		tf.compat.v1.summary.scalar('sgima_decayed',
-				sgima_decayed)
+		curr_params = copy.deepcopy(params)
+		curr_params['sigma'] = sigma_variable
 
 		with tf.GradientTape() as tape:
 			logits, zpred = net(features, training=training_state)
 			ypred = tf.nn.sigmoid(logits)
 
-			if params['minimize_logits'] == 'True':
-				if params['weighted_mmd'] == "True":
-					prediction_loss, mmd_loss = compute_loss(labels, logits, logits,
-						sample_weights, sample_weights_pos, sample_weights_neg, params)
-				else:
-					prediction_loss, mmd_loss = compute_loss(labels, logits, logits,
-						None, None, None, params)
-
-			else:
-				if params['weighted_mmd'] == "True":
-					prediction_loss, mmd_loss = compute_loss(labels, logits, zpred,
-						sample_weights, sample_weights_pos, sample_weights_neg, params)
-				else:
-					prediction_loss, mmd_loss = compute_loss(labels, logits, zpred,
-						None, None, None, params)
+			prediction_loss, mmd_loss = evaluation_metrics.compute_loss(labels, logits, zpred,
+				sample_weights, sample_weights_pos, sample_weights_neg, curr_params)
 
 			regularization_loss = tf.reduce_sum(net.losses)
-			loss = regularization_loss + prediction_loss + params["alpha"] * mmd_loss
+			loss = regularization_loss + prediction_loss + curr_params["alpha"] * mmd_loss
 
-			mmd_val_op = tf.compat.v1.summary.scalar('mmd', mmd_loss)
-			pred_loss_op = tf.compat.v1.summary.scalar('ploss', prediction_loss)
-			regularization_loss_op = tf.compat.v1.summary.scalar('regloss',
-				regularization_loss)
-
-		summary_hook_list = [sgima_decayed,
-				mmd_val_op, pred_loss_op, regularization_loss_op]
-
-		orig_sigma = params['sigma']
-		orig_weighting = params['weighted_mmd']
-		for sigma_val in [0.1, 1, 10, 100, 1000, 10000]:
-			uw_temp_params = copy.deepcopy(params)
-			uw_temp_params['sigma'] = sigma_val
-			uw_temp_params['weighted_mmd'] = 'False'
-			_, uw_mmd_val_at_sigma = compute_loss(labels, logits, zpred, None,
-				None, None, uw_temp_params)
-
-			summary_hook_list.append(
-				tf.compat.v1.summary.scalar(f'uw_mmd{sigma_val}', uw_mmd_val_at_sigma)
-			)
-
-			w_temp_params = copy.deepcopy(params)
-			w_temp_params['sigma'] = sigma_val
-			w_temp_params['weighted_mmd'] = 'True'
-			_, w_mmd_val_at_sigma = compute_loss(labels, logits, zpred,
-				sample_weights, sample_weights_pos, sample_weights_neg,
-				w_temp_params)
-
-			summary_hook_list.append(
-				tf.compat.v1.summary.scalar(f'w_mmd{sigma_val}', w_mmd_val_at_sigma)
-			)
-
-		# assert params['sigma'] == orig_sigma
-		# assert params['weighted_mmd'] == orig_weighting
 
 		variables = net.trainable_variables
 		gradients = tape.gradient(loss, variables)
 
-		summary_hook = tf.estimator.SummarySaverHook(save_steps=100,
-			summary_op=summary_hook_list)
+		sigma_monitor_hook = tf.estimator.SummarySaverHook(
+			save_steps=(params['update_sigma_every_epochs'] * params['steps_per_epoch']) + 1,
+			summary_op=[tf.compat.v1.summary.scalar('sigma', sigma_variable)]
+		)
 
 		return tf.estimator.EstimatorSpec(
 			mode,
@@ -430,14 +219,16 @@ def model_fn(features, labels, mode, params):
 			train_op=tf.group(
 				opt.apply_gradients(zip(gradients, variables)),
 				ckpt.step.assign_add(1)),
-			training_hooks=[summary_hook])
+			training_hooks=[sigma_monitor_hook])
 
 def train(exp_dir,
 					dataset_builder,
 					architecture,
 					training_steps,
 					pixel,
+					num_epochs,
 					batch_size,
+					Kfolds,
 					alpha,
 					sigma,
 					weighted_mmd,
@@ -456,13 +247,24 @@ def train(exp_dir,
 	if not os.path.exists(scratch_exp_dir):
 		os.mkdir(scratch_exp_dir)
 
-	cleanup_directory(scratch_exp_dir)
+	train_utils.cleanup_directory(scratch_exp_dir)
+
+	input_fns = dataset_builder()
+	training_data_size, train_input_fn, valid_input_fn, Kfold_input_fn_creater, eval_input_fn_creater = input_fns
+	steps_per_epoch = int(training_data_size / batch_size)
+
+	# TODO: make this a variable
+	update_sigma_every_epochs = 2
+	save_every_epochs = 2
 
 	params = {
 		"pixel": pixel,
-		"training_steps": training_steps,
 		"architecture": architecture,
+		"num_epochs": num_epochs,
 		"batch_size": batch_size,
+		"steps_per_epoch": steps_per_epoch,
+		"update_sigma_every_epochs": update_sigma_every_epochs,
+		"Kfolds": Kfolds,
 		"alpha": alpha,
 		"sigma": sigma,
 		"weighted_mmd": weighted_mmd,
@@ -474,47 +276,57 @@ def train(exp_dir,
 		"label_ind": 0
 	}
 
+	# NOTE: need to checkpoint after every epoch
+	# for sigma decay to work efficiently
+	assert save_every_epochs == update_sigma_every_epochs
+
 	run_config = tf.estimator.RunConfig(
 		tf_random_seed=random_seed,
-		save_checkpoints_steps=100,
+		save_checkpoints_steps=save_every_epochs * steps_per_epoch,
 		# save_checkpoints_secs=500,
 		keep_checkpoint_max=2)
 
 	est = tf.estimator.Estimator(
 		model_fn, model_dir=scratch_exp_dir, params=params, config=run_config)
 
-	input_fns = dataset_builder()
-	train_input_fn, valid_input_fn, eval_input_fn_creater = input_fns
+	print(f"=====steps_per_epoch {steps_per_epoch}======")
+	if training_steps == 0:
+		training_steps = int(params['num_epochs'] * steps_per_epoch)
 
+		
 	est.train(train_input_fn, steps=training_steps,
+			hooks=[
+			# 	DynamicSigmaHook(
+			# 		estimator=est, input_fn_creater=Kfold_input_fn_creater, params=params,
+			# 		epoch_size=update_sigma_every_epochs * steps_per_epoch,
+			# 		sigma_value=params['sigma']),
+				profiler.OomReportingHook()
+		],
 		saving_listeners=[
+			EvalCheckpointSaverListener(est, train_input_fn, "train"),
 			EvalCheckpointSaverListener(est, eval_input_fn_creater(0.1, params), "0.1"),
 			EvalCheckpointSaverListener(est, eval_input_fn_creater(0.5, params), "0.5"),
 			EvalCheckpointSaverListener(est, eval_input_fn_creater(0.95, params),
 				"0.95"),
 		]
 	)
-	validation_results = est.evaluate(valid_input_fn)
-	if params["weighted_mmd"] == "True":
-		validation_results["xv_loss"] = validation_results["weighted_loss"]
-		validation_results["xv_mmd"] = validation_results["weighted_mmd"]
-	else:
-		validation_results["xv_loss"] = validation_results["unweighted_loss"]
-		validation_results["xv_mmd"] = validation_results["unweighted_mmd"]
 
+	validation_results = est.evaluate(valid_input_fn)
 	all_results = {"validation": validation_results}
 
 	if py1_y0_shift_list is not None:
+		# -- during testing, we dont have access to labels/weights
+		test_params = copy.deepcopy(params)
+		test_params['weighted_mmd'] = 'False'
+		test_params['balanced_weights'] = 'False'
 		for py in py1_y0_shift_list:
-			eval_input_fn = eval_input_fn_creater(py, params)
+			eval_input_fn = eval_input_fn_creater(py, test_params)
 			distribution_results = est.evaluate(eval_input_fn, steps=1e5)
-			if params["weighted_mmd"] == "True":
-				distribution_results['loss'] = distribution_results['unweighted_loss']
 			all_results[f'shift_{py}'] = distribution_results
 
 	# save results
 	savefile = f"{exp_dir}/performance.pkl"
-	all_results = flatten_dict(all_results)
+	all_results = train_utils.flatten_dict(all_results)
 	pickle.dump(all_results, open(savefile, "wb"))
 
 	# save model
@@ -522,4 +334,4 @@ def train(exp_dir,
 	est.export_saved_model(f'{exp_dir}/saved_model', serving_input_fn)
 
 	# if cleanup == 'True':
-	# 	cleanup_directory(scratch_exp_dir)
+	# 	train_utils.cleanup_directory(scratch_exp_dir)

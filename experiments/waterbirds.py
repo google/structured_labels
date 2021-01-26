@@ -37,7 +37,7 @@ FINAL_MODELS_DIR = f'{BASE_DIR}/final_models'
 
 HOST = socket.gethostname()
 
-AVAILABLE_GPUS = [1, 2, 4, 6] if HOST == 'milo' else [0, 1]
+AVAILABLE_GPUS = [i for i in range(5)] if HOST == 'milo' else [0, 1, 2]
 NUM_GPUS = len(AVAILABLE_GPUS)
 PROC_PER_GPU = 1 if HOST == 'milo' else 1
 NUM_DELETE_WORKERS = 20
@@ -69,7 +69,6 @@ def runner(config, overwrite):
 			return None
 		if not os.path.exists(hash_dir):
 			os.system(f'mkdir -p {hash_dir}')
-
 		config['exp_dir'] = hash_dir
 		config['cleanup'] = True
 		chosen_gpu = QUEUE.get()
@@ -136,55 +135,27 @@ def main(experiment_name,
 		if not os.path.exists(FINAL_MODELS_DIR):
 			os.mkdir(FINAL_MODELS_DIR)
 
-		if 'slabs' in model_to_tune:
-			hparams = ['alpha', 'sigma', 'embedding_dim', 'l2_penalty', 'dropout_rate']
-			try:
-				# --- main slabs
-				slabs_main, slabs_main_per_run = cv.get_optimal_model_results(mode='two_step',
-					configs=all_config, base_dir=BASE_DIR, hparams=hparams,
-					equivalent=True, pval=False)
-
-				slabs_main['model'] = f'{model_to_tune}_main'
-				slabs_main.to_csv(
-					f'{FINAL_MODELS_DIR}/{model_to_tune}_main.csv',
-					index=False)
-
-				slabs_main_per_run['model'] = f'{model_to_tune}_main'
-				slabs_main_per_run.to_csv(
-					f'{FINAL_MODELS_DIR}/{model_to_tune}_main_per_run.csv',
-					index=False)
-
-				# # --- slabs without considering euivalent models
-				# slabs_non_equivalent, slabs_non_equivalent_per_run = \
-				# 	cv.get_optimal_model_results(mode='two_step', configs=all_config,
-				# 		base_dir=BASE_DIR, hparams=hparams, equivalent=False, pval=False)
-
-				# slabs_non_equivalent['model'] = f'{model_to_tune}_non_equivalent'
-				# slabs_non_equivalent.to_csv(
-				# 	f'{FINAL_MODELS_DIR}/{model_to_tune}_non_equivalent.csv',
-				# 	index=False)
-
-				# slabs_non_equivalent_per_run['model'] = f'{model_to_tune}_non_equivalent'
-				# slabs_non_equivalent_per_run.to_csv(
-				# 	f'{FINAL_MODELS_DIR}/{model_to_tune}_non_equivalent_per_run.csv',
-				# 	index=False)
-			except:
-				print("only getting classical here")
-
-		classic_final_model, classic_final_model_per_run = \
+		classic_final_model, _ = \
 			cv.get_optimal_model_results(mode='classic', configs=all_config,
 				base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
 				'embedding_dim'], pval=False)
 
 		classic_final_model['model'] = f'{model_to_tune}_classic'
 		classic_final_model.to_csv(
-			f'{FINAL_MODELS_DIR}/{model_to_tune}_classic.csv',
+			f'{FINAL_MODELS_DIR}/{model_to_tune}_classic_{experiment_name}.csv',
 			index=False)
 
-		classic_final_model_per_run['model'] = f'{model_to_tune}_classic'
-		classic_final_model_per_run.to_csv(
-			f'{FINAL_MODELS_DIR}/{model_to_tune}_classic_per_run.csv',
-			index=False)
+		if 'slabs' in model_to_tune:
+			twostep_final_model, _ = \
+				cv.get_optimal_model_results(mode='two_step', configs=all_config,
+					base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
+					'embedding_dim'], pval=False)
+
+			twostep_final_model['model'] = f'{model_to_tune}_ts'
+			twostep_final_model.to_csv(
+				f'{FINAL_MODELS_DIR}/{model_to_tune}_ts_{experiment_name}.csv',
+				index=False)
+
 
 	elif clean_directories:
 		print("Are you sure you want to delete? Uncomment the next line then!")
@@ -203,14 +174,18 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 
 	parser.add_argument('--experiment_name', '-experiment_name',
-		default='correlation',
-		choices=['correlation', 'overlap'],
+		default='5050',
+		choices=['5050', '5090', '8090'],
 		help="Which experiment to run",
 		type=str)
 
 	parser.add_argument('--model_to_tune', '-model_to_tune',
 		default='slabs',
-		choices=['slabs', 'unweighted_slabs','simple_baseline', 'weighted_baseline', 'oracle_aug'],
+		choices=[
+			'slabs', 'slabs_logit',
+			'unweighted_slabs', 'unweighted_slabs_logit',
+			'simple_baseline', 'weighted_baseline',
+			'oracle_aug'],
 		help="Which model to tune",
 		type=str)
 
