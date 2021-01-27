@@ -336,4 +336,4 @@ def train(exp_dir,
 	est.export_saved_model(f'{exp_dir}/saved_model', serving_input_fn)
 
 	# if cleanup == 'True':
-	# 	train_utils.cleanup_directory(scratch_exp_dir)
+	train_utils.cleanup_directory(scratch_exp_dir)

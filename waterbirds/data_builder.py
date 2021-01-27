@@ -17,8 +17,9 @@
 Code based on https://github.com/kohpangwei/group_DRO/blob/master/
 	dataset_scripts/generate_waterbirds.py
 """
-import os
+import os, shutil
 import functools
+from copy import deepcopy 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -273,7 +274,7 @@ def load_created_data(experiment_directory, py1_y0_s):
 
 
 def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1,
-	py1_y0_s=.5, pflip0=.1, pflip1=.1, oracle_prop=0.0, random_seed=None):
+	py1_y0_s=.5, pflip0=.1, pflip1=.1, random_seed=None):
 
 	if (py0 != 0.8) and (py0 != 0.5):
 		raise NotImplementedError("Only accepting values of 0.8 and 0.5 for now")
@@ -323,26 +324,6 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 		train_valid_df, NUM_PLACE_IMAGES, NUM_PLACE_IMAGES, py1_y0=py1_y0,
 		pflip0=pflip0, pflip1=pflip1)
 
-	if oracle_prop > 0.0:
-		raise NotImplementedError("not yet")
-		augmentation_df = np.random.choice(df_or.shape[0],
-			size=int(oracle_prop * df_or.shape[0]),
-			replace=False).tolist()
-		df_or = df_or.loc[augmentation_df]
-		df_or.reset_index(inplace=True, drop=True)
-		df_or, or_used_water_img_ids, or_used_land_img_ids = \
-			create_images_labels(train_valid_df, NUM_PLACE_IMAGES, NUM_PLACE_IMAGES,
-				py1_y0=py1_y0, pflip0=pflip0, pflip1=pflip1)
-
-		train_valid_df = train_valid_df.append(df_or).reset_index(
-			drop=True)
-
-		used_water_img_ids = list(set(used_water_img_ids).union(
-			set(or_used_water_img_ids)))
-
-		used_land_img_ids = list(set(used_land_img_ids).union(
-			set(or_used_land_img_ids)))
-
 	# --- create train validation split
 	# TODO don't hard code p_tr
 	train_ids = rng.choice(train_valid_df.shape[0],
@@ -383,11 +364,78 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 			filename=f'test_shift{py1_y0_s_val}')
 
 
+def get_augmentation_data(main_experiment_directory, group, oracle_prop, pflip0, pflip1):
+
+	original_data = pd.read_csv(
+		f'{main_experiment_directory}/{group}.txt').values.tolist()
+	original_data = [
+		tuple(original_data[i][0].split(',')) for i in range(len(original_data))
+	]
+
+	df = pd.DataFrame(original_data, 
+		columns =['img_filename', 'seg_img', 'background_filename','y0', 'y1',
+		'weights_pos', 'weights_neg', 'weights', 'balanced_weights_pos',
+		'balanced_weights_neg', 'balanced_weights']) 
+
+	df.drop(['seg_img','weights_pos', 'weights_neg', 
+        'weights', 'balanced_weights_pos', 'balanced_weights_neg', 
+        'balanced_weights'], inplace = True, axis = 1)
+	
+	df['y0'] = df['y0'].astype(float)
+	df['y1'] = df['y1'].astype(float)
+
+	df['img_filename'] = df.img_filename.str.replace(f'{IMAGE_DIR}/images/', '')
+	df['background_filename'] = df.background_filename.str.replace(
+		f'{DATA_DIR}/places_data/', '')
+
+	aug_n2 = int(oracle_prop * df.shape[0]/2)
+
+	water_bird_index = np.random.choice(
+		df[(df.img_filename.str.contains('Gull'))].index.tolist(), 
+		size = aug_n2
+	).tolist()
+
+	land_bird_index = np.random.choice(
+		df[(df.img_filename.str.contains('Warbler'))].index.tolist(), 
+		size = aug_n2
+	).tolist()
+
+	aug_bird_index = water_bird_index + land_bird_index
+	aug_df = df.iloc[aug_bird_index].reset_index(drop = True)
+	aug_df.drop(['background_filename', 'y0', 'y1'], axis=1, inplace=True)
+
+	aug_df['y0'] = aug_df.apply(get_bird_type, axis=1)
+	aug_df, _, _ = create_images_labels(
+		aug_df, NUM_PLACE_IMAGES, NUM_PLACE_IMAGES, py1_y0=0.5,
+		pflip0=pflip0, pflip1=pflip1)
+
+	aug_df = aug_df[df.columns]
+	df = df.append(aug_df, ignore_index=True)
+	return df
+
+
+def create_save_waterbird_oracle_lists(experiment_directory, main_experiment_directory,
+	oracle_prop, py1_y0_s, pflip0, pflip1, random_seed):
+	
+	train_df = get_augmentation_data(main_experiment_directory, 'train', 
+		oracle_prop, pflip0, pflip1)
+	train_df = get_weights(train_df) 
+	save_created_data(train_df, experiment_directory=experiment_directory,
+		filename='train')
+
+	valid_df = get_augmentation_data(main_experiment_directory, 'validation',
+		oracle_prop, pflip0, pflip1)
+	valid_df = get_weights(valid_df) 
+	save_created_data(valid_df, experiment_directory=experiment_directory,
+		filename='validation')
+
+	for py1_y0_s_val in py1_y0_s:
+		shutil.copy(f'{main_experiment_directory}/test_shift{py1_y0_s_val}.txt', 
+			f'{experiment_directory}/test_shift{py1_y0_s_val}.txt')
+
+
 def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 	pflip1=.1, oracle_prop=0.0, Kfolds=0, random_seed=None):
-
-	if oracle_prop > 0.0:
-		raise NotImplementedError("not yet!")
 
 	experiment_directory = (f'{DATA_DIR}/experiment_data/'
 		f'rs{random_seed}_py0{py0}_py1_y0{py1_y0}')
@@ -405,9 +453,27 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 			py1_y0_s=py1_y0_s,
 			pflip0=pflip0,
 			pflip1=pflip1,
-			oracle_prop=oracle_prop,
 			random_seed=random_seed)
 
+	if oracle_prop > 0.0:
+		main_experiment_directory = deepcopy(experiment_directory)
+		experiment_directory = (f'{DATA_DIR}/experiment_data/'
+			f'oracle_aug_rs{random_seed}_py0{py0}_py1_y0{py1_y0}')
+
+		if not os.path.exists(f'{experiment_directory}/train.txt'):
+			if not os.path.exists(experiment_directory):
+				os.mkdir(experiment_directory)
+
+			create_save_waterbird_oracle_lists(
+				experiment_directory = experiment_directory, 
+				main_experiment_directory = main_experiment_directory, 
+				oracle_prop=oracle_prop, 
+				py1_y0_s=py1_y0_s,
+				pflip0=pflip0,
+				pflip1=pflip1,
+				random_seed=random_seed)
+
+		
 	# --load splits
 	train_data, valid_data, shifted_data_dict = load_created_data(
 		experiment_directory=experiment_directory, py1_y0_s=py1_y0_s)

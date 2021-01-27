@@ -87,7 +87,7 @@ def runner(config, overwrite):
 
 def main(experiment_name,
 					model_to_tune,
-					aug_prop,
+					oracle_prop,
 					num_trials,
 					overwrite,
 					train_models,
@@ -97,7 +97,7 @@ def main(experiment_name,
 	Args:
 		experiment_name: str, name of the experiemnt to run
 		model_to_tune: str, which model to tune/train
-		aug_prop: float, proportion to use for training augmentation. Only relevant
+		oracle_prop: float, proportion to use for training augmentation. Only relevant
 				if model_to_tune is [something]_aug
 		num_trials: int, number of hyperparams to train for
 		num_workers: int, number of workers to run in parallel
@@ -107,7 +107,7 @@ def main(experiment_name,
 		Returns:
 			nothing
 	"""
-	all_config = configurator.get_sweep(experiment_name, model_to_tune, aug_prop)
+	all_config = configurator.get_sweep(experiment_name, model_to_tune, oracle_prop)
 	print(f'All configs are {len(all_config)}')
 
 
@@ -185,12 +185,12 @@ if __name__ == "__main__":
 			'slabs', 'slabs_logit',
 			'unweighted_slabs', 'unweighted_slabs_logit',
 			'simple_baseline', 'weighted_baseline',
-			'oracle_aug'],
+			'oracle_aug', 'random_aug'],
 		help="Which model to tune",
 		type=str)
 
-	parser.add_argument('--aug_prop', '-aug_prop',
-		default=-1.1,
+	parser.add_argument('--oracle_prop', '-oracle_prop',
+		default=-1.0,
 		help=("Proportion of training data to use for augentation."
 					"Only relevant if model_to_tune is [something]_aug"),
 		type=float)
