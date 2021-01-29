@@ -20,7 +20,8 @@ import socket
 import multiprocessing
 import os
 import pickle
-
+import copy
+from pathlib import Path
 import argparse
 import numpy as np
 import tqdm
@@ -37,7 +38,7 @@ FINAL_MODELS_DIR = f'{BASE_DIR}/final_models'
 
 HOST = socket.gethostname()
 
-AVAILABLE_GPUS = [i for i in range(5)] if HOST == 'milo' else [0, 1, 2]
+AVAILABLE_GPUS = [6, 7] if HOST == 'milo' else [0, 1, 2, 3]
 NUM_GPUS = len(AVAILABLE_GPUS)
 PROC_PER_GPU = 1 if HOST == 'milo' else 1
 NUM_DELETE_WORKERS = 20
@@ -69,8 +70,23 @@ def runner(config, overwrite):
 			return None
 		if not os.path.exists(hash_dir):
 			os.system(f'mkdir -p {hash_dir}')
+		if config['warmstart_dir'] != 'None':
+			try: 
+				warmstart_config = copy.deepcopy(config)
+				warmstart_config['weighted_mmd'] = 'False'
+				warmstart_config['balanced_weights'] = 'False'
+				del warmstart_config['warmstart_dir']
+				warmstart_hash_string =  utils.config_hasher(warmstart_config)
+				warmstart_hash_dir = os.path.join(BASE_DIR, 'tuning', warmstart_hash_string, 'saved_model')
+				subdirs = [x for x in Path(warmstart_hash_dir).iterdir() if x.is_dir() and 'temp' not in str(x)]
+				warmstart_hash_dir = str(sorted(subdirs)[-1])
+				config['warmstart_dir'] = f'{warmstart_hash_dir}/variables/variables'
+			except: 
+				raise NotImplementedError("not yet")
+
 		config['exp_dir'] = hash_dir
 		config['cleanup'] = True
+
 		chosen_gpu = QUEUE.get()
 		config['gpuid'] = chosen_gpu
 		flags = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
@@ -156,7 +172,6 @@ def main(experiment_name,
 				f'{FINAL_MODELS_DIR}/{model_to_tune}_ts_{experiment_name}.csv',
 				index=False)
 
-
 	elif clean_directories:
 		print("Are you sure you want to delete? Uncomment the next line then!")
 		assert 1 == 2
@@ -185,7 +200,9 @@ if __name__ == "__main__":
 			'slabs', 'slabs_logit',
 			'unweighted_slabs', 'unweighted_slabs_logit',
 			'simple_baseline', 'weighted_baseline',
-			'oracle_aug', 'random_aug'],
+			'oracle_aug', 'weighted_oracle_aug',
+			'random_aug', 'weighted_random_aug'
+		],
 		help="Which model to tune",
 		type=str)
 

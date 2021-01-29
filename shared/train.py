@@ -202,7 +202,11 @@ def model_fn(features, labels, mode, params):
 				sample_weights, sample_weights_pos, sample_weights_neg, curr_params)
 
 			regularization_loss = tf.reduce_sum(net.losses)
-			loss = regularization_loss + prediction_loss + curr_params["alpha"] * mmd_loss
+			if params['weighted_mmd'] == 'half':
+				loss = regularization_loss + tf.reduce_mean(sample_weights) * prediction_loss + curr_params["alpha"] * mmd_loss
+				
+			else: 
+				loss = regularization_loss + prediction_loss + curr_params["alpha"] * mmd_loss
 
 
 		variables = net.trainable_variables
@@ -236,9 +240,10 @@ def train(exp_dir,
 					dropout_rate,
 					l2_penalty,
 					embedding_dim,
-					random_augmentation, 
+					random_augmentation,
 					random_seed,
 					minimize_logits,
+					warmstart_dir, 
 					cleanup,
 					py1_y0_shift_list=None):
 	"""Trains the estimator."""
@@ -273,7 +278,7 @@ def train(exp_dir,
 		"dropout_rate": dropout_rate,
 		"l2_penalty": l2_penalty,
 		"embedding_dim": embedding_dim,
-		"random_augmentation": random_augmentation, 
+		"random_augmentation": random_augmentation,
 		"minimize_logits": minimize_logits,
 		"label_ind": 0
 	}
@@ -288,14 +293,19 @@ def train(exp_dir,
 		# save_checkpoints_secs=500,
 		keep_checkpoint_max=2)
 
-	est = tf.estimator.Estimator(
-		model_fn, model_dir=scratch_exp_dir, params=params, config=run_config)
-
+	if warmstart_dir == 'None':
+		est = tf.estimator.Estimator(
+			model_fn, model_dir=scratch_exp_dir, params=params, config=run_config)
+	else:
+		warm_start = tf.estimator.WarmStartSettings(warmstart_dir)
+		est = tf.estimator.Estimator(
+			model_fn, model_dir=scratch_exp_dir, params=params, config=run_config, 
+			warm_start_from=warm_start)
 	print(f"=====steps_per_epoch {steps_per_epoch}======")
 	if training_steps == 0:
 		training_steps = int(params['num_epochs'] * steps_per_epoch)
 
-		
+
 	est.train(train_input_fn, steps=training_steps,
 			hooks=[
 			# 	DynamicSigmaHook(
@@ -336,4 +346,4 @@ def train(exp_dir,
 	est.export_saved_model(f'{exp_dir}/saved_model', serving_input_fn)
 
 	# if cleanup == 'True':
-	train_utils.cleanup_directory(scratch_exp_dir)
+	# train_utils.cleanup_directory(scratch_exp_dir)

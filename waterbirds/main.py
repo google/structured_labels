@@ -51,7 +51,8 @@ flags.DEFINE_string('weighted_mmd', 'False',
 											'use weighting when computing the mmd?.')
 flags.DEFINE_string('balanced_weights', 'True',
 											'balance weights? aka add numerator.')
-
+flags.DEFINE_string('warmstart_dir', 'None',
+											'Directory of saved model to warm start from.')
 
 flags.DEFINE_float('dropout_rate', 0.0, 'Value for drop out rate')
 flags.DEFINE_float('l2_penalty', 0.0,
@@ -114,6 +115,7 @@ def main(argv):
 		random_augmentation=FLAGS.random_augmentation, 
 		random_seed=FLAGS.random_seed,
 		minimize_logits=FLAGS.minimize_logits,
+		warmstart_dir=FLAGS.warmstart_dir, 
 		cleanup=FLAGS.cleanup,
 		py1_y0_shift_list=py1_y0_shift_list)
 

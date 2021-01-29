@@ -19,14 +19,14 @@ import itertools
 import re
 
 
-def configure_slabs(py0, py1_y0, logit):
+def configure_slabs(py0, py1_y0, logit, weighted):
 	"""Creates hyperparameters for correlations experiment for SLABS model.
 
 	Returns:
 		Iterator with all hyperparameter combinations
 	"""
 	param_dict = {
-		'random_seed': [i for i in range(10)],
+		'random_seed': [i for i in range(2)],
 		'pflip0': [0.01],
 		'pflip1': [0.01],
 		'py0': [py0],
@@ -35,13 +35,14 @@ def configure_slabs(py0, py1_y0, logit):
 		'l2_penalty': [0.0],
 		'dropout_rate': [0.0],
 		'embedding_dim': [10],
-		'sigma': [1.0, 10.0, 100.0, 1000.0],
-		'alpha': [1e3],
+		'sigma': [10.0, 100.0, 1000.0],
+		'alpha': [1e3, 1e5, 1e7],
 		"architecture": ["pretrained_resnet"],
 		"batch_size": [64],
-		'weighted_mmd': ["True"],
-		"balanced_weights": ["True"],
-		'minimize_logits': [logit]
+		'weighted_mmd': [weighted],
+		"balanced_weights": ['False'],
+		'minimize_logits': [logit], 
+		'warmstart_dir': ['find']
 	}
 
 	print(param_dict)
@@ -51,40 +52,7 @@ def configure_slabs(py0, py1_y0, logit):
 	return sweep
 
 
-def configure_unweighted_slabs(py0, py1_y0, logit):
-	"""Creates hyperparameters for correlations experiment for SLABS model.
-
-	Returns:
-		Iterator with all hyperparameter combinations
-	"""
-	param_dict = {
-		'random_seed': [i for i in range(10)],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		'py0': [py0],
-		'py1_y0': [py1_y0],
-		'pixel': [128],
-		'l2_penalty': [0.0],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [1.0, 10.0, 100.0, 1000.0],
-		'alpha': [1e3],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
-		'weighted_mmd': ["False"],
-		"balanced_weights": ["False"],
-		'minimize_logits': [logit]
-	}
-
-	print(param_dict)
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-	return sweep
-
-
-def configure_simple_baseline(py0, py1_y0):
+def configure_simple_baseline(py0, py1_y0, weighted):
 	"""Creates hyperparameters for the correlations experiment for baseline.
 
 	Returns:
@@ -92,7 +60,7 @@ def configure_simple_baseline(py0, py1_y0):
 	"""
 
 	param_dict = {
-		'random_seed': [i for i in range(10)],
+		'random_seed': [i for i in range(5)],
 		'pflip0': [0.01],
 		'pflip1': [0.01],
 		'py0': [py0],
@@ -105,77 +73,9 @@ def configure_simple_baseline(py0, py1_y0):
 		'alpha': [0.0],
 		"architecture": ["pretrained_resnet"],
 		"batch_size": [64],
-		'weighted_mmd': ["False"],
-		"balanced_weights": ["False"],
+		'weighted_mmd': [weighted],
+		"balanced_weights": ['False'],
 		'minimize_logits': ["False"]
-	}
-
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-	return sweep
-
-
-def configure_weighted_baseline(py0, py1_y0):
-	"""Creates hyperparameters for the correlations experiment for baseline.
-
-	Returns:
-		Iterator with all hyperparameter combinations
-	"""
-
-	param_dict = {
-		'random_seed': [i for i in range(10)],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		'py0': [py0],
-		'py1_y0': [py1_y0],
-		'pixel': [128],
-		'l2_penalty': [0.0, 0.0001],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [10.0],
-		'alpha': [0.0],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
-		'weighted_mmd': ["True"],
-		"balanced_weights": ["True"],
-		'minimize_logits': ["False"]
-	}
-
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
-	return sweep
-
-
-
-
-def configure_random_augmentation(py0, py1_y0):
-	"""Creates hyperparameters for the correlations experiment for baseline.
-
-	Returns:
-		Iterator with all hyperparameter combinations
-	"""
-
-	param_dict = {
-		'random_seed': [i for i in range(10)],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		'py0': [py0],
-		'py1_y0': [py1_y0],
-		'pixel': [128],
-		'l2_penalty': [0.0],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [10.0],
-		'alpha': [0.0],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
-		'weighted_mmd': ["False"],
-		"balanced_weights": ["False"],
-		'minimize_logits': ["False"], 
-		"random_augmentation": ['True']
 	}
 
 	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
@@ -183,11 +83,46 @@ def configure_random_augmentation(py0, py1_y0):
 	sweep0 = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
 	param_dict = {
-		'random_seed': [i for i in range(10)],
+		'random_seed': [i for i in range(5)],
 		'pflip0': [0.01],
 		'pflip1': [0.01],
 		'py0': [0.8],
 		'py1_y0': [0.9],
+		'pixel': [128],
+		'l2_penalty': [0.0, 0.0001],
+		'dropout_rate': [0.0],
+		'embedding_dim': [10],
+		'sigma': [10.0],
+		'alpha': [0.0],
+		"architecture": ["pretrained_resnet"],
+		"batch_size": [64],
+		'weighted_mmd': [weighted],
+		"balanced_weights": ['False'],
+		'minimize_logits': ["False"]
+	}
+
+	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
+	keys, values = zip(*param_dict_ordered.items())
+	sweep1 = [dict(zip(keys, v)) for v in itertools.product(*values)]
+
+	sweep = sweep0 + sweep1
+
+	return sweep
+
+
+def configure_random_augmentation(py0, py1_y0, weighted):
+	"""Creates hyperparameters for the correlations experiment for baseline.
+
+	Returns:
+		Iterator with all hyperparameter combinations
+	"""
+
+	param_dict = {
+		'random_seed': [i for i in range(10)],
+		'pflip0': [0.01],
+		'pflip1': [0.01],
+		'py0': [py0],
+		'py1_y0': [py1_y0],
 		'pixel': [128],
 		'l2_penalty': [0.0],
 		'dropout_rate': [0.0],
@@ -196,22 +131,20 @@ def configure_random_augmentation(py0, py1_y0):
 		'alpha': [0.0],
 		"architecture": ["pretrained_resnet"],
 		"batch_size": [64],
-		'weighted_mmd': ["False"],
-		"balanced_weights": ["False"],
-		'minimize_logits': ["False"], 
+		'weighted_mmd': [weighted],
+		"balanced_weights": [weighted],
+		'minimize_logits': ["False"],
 		"random_augmentation": ['True']
 	}
 
 	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
 	keys, values = zip(*param_dict_ordered.items())
-	sweep1 = [dict(zip(keys, v)) for v in itertools.product(*values)]
+	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
-	sweep = sweep0 + sweep1
 	return sweep
 
 
-
-def configure_oracle_augmentation(py0, py1_y0, oracle_prop):
+def configure_oracle_augmentation(py0, py1_y0, oracle_prop, weighted):
 	"""Creates hyperparameters for the correlations experiment for baseline.
 	Args:
 		aug_prop: float, proportion of training data to use for augmentation
@@ -232,43 +165,16 @@ def configure_oracle_augmentation(py0, py1_y0, oracle_prop):
 		'alpha': [0.0],
 		"architecture": ["pretrained_resnet"],
 		"batch_size": [64],
-		'weighted_mmd': ["False"],
-		"balanced_weights": ["False"],
-		'minimize_logits': ["False"], 
+		'weighted_mmd': [weighted],
+		"balanced_weights": [weighted],
+		'minimize_logits': ["False"],
 		"oracle_prop": [oracle_prop]
 	}
 
 	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
 	keys, values = zip(*param_dict_ordered.items())
-	sweep0 = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-	param_dict = {
-		'random_seed': [i for i in range(10)],
-		'pflip0': [0.01],
-		'pflip1': [0.01],
-		'py0': [py0],
-		'py1_y0': [py1_y0],
-		'pixel': [128],
-		'l2_penalty': [0.0],
-		'dropout_rate': [0.0],
-		'embedding_dim': [10],
-		'sigma': [10.0],
-		'alpha': [0.0],
-		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
-		'weighted_mmd': ["True"],
-		"balanced_weights": ["True"],
-		'minimize_logits': ["False"], 
-		"oracle_prop": [oracle_prop]
-	}
-
-	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
-	keys, values = zip(*param_dict_ordered.items())
-	sweep1 = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-	sweep = sweep0 + sweep1
+	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
 	return sweep
-
 
 
 def get_sweep(experiment, model, oracle_prop=-1.0):
@@ -287,7 +193,8 @@ def get_sweep(experiment, model, oracle_prop=-1.0):
 		'slabs', 'slabs_logit',
 		'unweighted_slabs', 'unweighted_slabs_logit',
 		'simple_baseline','weighted_baseline',
-		'oracle_aug', 'random_aug']
+		'oracle_aug', 'weighted_oracle_aug',
+		'random_aug', 'weighted_random_aug']
 
 	implemented_experiments = ['5090', '5050', '8090']
 
@@ -306,26 +213,36 @@ def get_sweep(experiment, model, oracle_prop=-1.0):
 	py1_y0 = float(experiment[2:]) / 100.0
 
 	if model == 'slabs':
-		return configure_slabs(py0, py1_y0, logit='False')
+		return configure_slabs(py0, py1_y0, logit='False', weighted='True')
 
 	if model == 'slabs_logit':
-		return configure_slabs(py0, py1_y0, logit='True')
+		return configure_slabs(py0, py1_y0, logit='True', weighted='True')
 
 	if model == 'unweighted_slabs':
-		return configure_unweighted_slabs(py0, py1_y0, logit='False')
+		return configure_slabs(py0, py1_y0, logit='False',
+			weighted='False')
 
 	if model == 'unweighted_slabs_logit':
-		return configure_unweighted_slabs(py0, py1_y0, logit='True')
+		return configure_slabs(py0, py1_y0, logit='True',
+			weighted='False')
 
 	if model == 'simple_baseline':
-		return configure_simple_baseline(py0, py1_y0)
+		return configure_simple_baseline(py0, py1_y0, weighted='False')
 
 	if model == 'weighted_baseline':
-		return configure_weighted_baseline(py0, py1_y0)
+		return configure_simple_baseline(py0, py1_y0, weighted='True')
 
 	if model == 'random_aug':
-		return configure_random_augmentation(py0, py1_y0)
+		return configure_random_augmentation(py0, py1_y0, weighted='False')
+
+	if model == 'weighted_random_aug':
+		return configure_random_augmentation(py0, py1_y0, weighted='True')
 
 	if model == 'oracle_aug':
-		return configure_oracle_augmentation(py0, py1_y0, oracle_prop)
+		return configure_oracle_augmentation(py0, py1_y0, oracle_prop,
+			weighted='False')
+
+	if model == 'weighted_oracle_aug':
+		return configure_oracle_augmentation(py0, py1_y0, oracle_prop,
+			weighted='True')
 
