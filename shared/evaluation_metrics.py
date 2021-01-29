@@ -13,19 +13,57 @@
 # limitations under the License.
 
 """Evaluation metrics for the main method."""
-import copy 
+import copy
 
 from shared import losses
 
-import tensorflow as tf 
+import tensorflow as tf
 
 def compute_loss(labels, logits, z_pred, sample_weights,
 	sample_weights_pos, sample_weights_neg, params):
 	if params['weighted_mmd'] == 'False':
 		return compute_loss_unweighted(labels, logits, z_pred, params)
+	elif params['weighted_mmd'] == 'half':
+		return compute_loss_half_weighted(labels, logits, z_pred,
+		sample_weights, sample_weights_pos, sample_weights_neg,  params)
 	return compute_loss_weighted(labels, logits, z_pred,
 		sample_weights, sample_weights_pos, sample_weights_neg,  params)
 
+def compute_loss_half_weighted(labels, logits, z_pred, sample_weights,
+	sample_weights_pos, sample_weights_neg, params):
+	y_main = tf.expand_dims(labels[:, params["label_ind"]], axis=-1)
+
+	individual_losses = tf.keras.losses.binary_crossentropy(
+		y_main, logits, from_logits=True)
+
+	# --- Prediction loss
+	unweighted_loss = tf.reduce_mean(individual_losses)
+	unweighted_loss = unweighted_loss 
+	
+	# --- MMD loss
+	if params['minimize_logits'] == 'True':
+		embedding_features = logits
+	else:
+		embedding_features = z_pred
+
+	other_label_inds = [
+		lab_ind for lab_ind in range(labels.shape[1])
+		if lab_ind != params["label_ind"]
+	]
+
+	weighted_mmd_vals = []
+	for lab_ind in other_label_inds:
+		mmd_val = losses.mmd_loss(
+			embedding=embedding_features,
+			auxiliary_labels=labels[:, lab_ind],
+			weights_pos=sample_weights_pos,
+			weights_neg=sample_weights_neg,
+			params=params)
+		weighted_mmd_vals.append(mmd_val[0])
+
+	weighted_mmd = tf.concat(weighted_mmd_vals, axis=0)
+
+	return unweighted_loss, weighted_mmd
 
 def compute_loss_weighted(labels, logits, z_pred, sample_weights,
 	sample_weights_pos, sample_weights_neg, params):
@@ -44,7 +82,7 @@ def compute_loss_weighted(labels, logits, z_pred, sample_weights,
 	# --- MMD loss
 	if params['minimize_logits'] == 'True':
 		embedding_features = logits
-	else: 
+	else:
 		embedding_features = z_pred
 
 	other_label_inds = [
@@ -79,9 +117,9 @@ def compute_loss_unweighted(labels, logits, z_pred, params):
 	# --- MMD loss
 	if params['minimize_logits'] == 'True':
 		embedding_features = logits
-	else: 
+	else:
 		embedding_features = z_pred
-		
+
 
 	other_label_inds = [
 		lab_ind for lab_ind in range(labels.shape[1])
@@ -104,7 +142,7 @@ def compute_loss_unweighted(labels, logits, z_pred, params):
 
 
 def get_mmd_at_sigmas(sigma_list, labels, logits, z_pred, sample_weights,
-	sample_weights_pos, sample_weights_neg, params):
+	sample_weights_pos, sample_weights_neg, params, eager=False):
 	result_dict = {}
 	for sigma_val in sigma_list:
 		temp_params = copy.deepcopy(params)
@@ -112,10 +150,14 @@ def get_mmd_at_sigmas(sigma_list, labels, logits, z_pred, sample_weights,
 		_, mmd_val_at_sigma = compute_loss(labels, logits, z_pred,
 			sample_weights, sample_weights_pos, sample_weights_neg,
 			temp_params)
-		result_dict[f'mmd{sigma_val}'] = tf.compat.v1.metrics.mean(
-			mmd_val_at_sigma)
+		if eager:
+			result_dict[f'mmd{sigma_val}'] = mmd_val_at_sigma.numpy()
 
-	return result_dict 
+		else:
+			result_dict[f'mmd{sigma_val}'] = tf.compat.v1.metrics.mean(
+				mmd_val_at_sigma)
+
+	return result_dict
 
 
 def get_prediction_by_group(labels, predictions):
@@ -136,12 +178,12 @@ def get_prediction_by_group(labels, predictions):
 	mean_prediction_dict['mean_pred_01'] = tf.compat.v1.metrics.mean(
 		tf.gather(predictions, labels01_mask)
 	)
-	
+
 	labels00_mask = tf.where((1.0 - labels[:, 0]) * (1.0 - labels[:, 1]))
 	mean_prediction_dict['mean_pred_00'] = tf.compat.v1.metrics.mean(
 		tf.gather(predictions, labels00_mask)
 	)
-	
+
 	return mean_prediction_dict
 
 
@@ -156,7 +198,7 @@ def auroc(labels, predictions):
 def get_eval_metrics_dict(labels, predictions, sample_weights,
 	sample_weights_pos, sample_weights_neg, sigma_list, params):
 	y_main = tf.expand_dims(labels[:, params["label_ind"]], axis=-1)
-	
+
 	eval_metrics_dict = {}
 
 	# -- the "usual" evaluation metrics
@@ -166,13 +208,13 @@ def get_eval_metrics_dict(labels, predictions, sample_weights,
 	eval_metrics_dict["auc"] = auroc(
 		labels=y_main, predictions=predictions["probabilities"])
 
-	# -- MMD at different sigmas 
-	mmd_val_at_sigmas = get_mmd_at_sigmas(sigma_list, labels, 
+	# -- MMD at different sigmas
+	mmd_val_at_sigmas = get_mmd_at_sigmas(sigma_list, labels,
 		predictions['logits'], predictions['embedding'],
 		sample_weights, sample_weights_pos, sample_weights_neg,
 		params)
 
-	# -- Mean predictions for each group 
+	# -- Mean predictions for each group
 	mean_prediction_by_group = get_prediction_by_group(labels,
 		predictions["probabilities"])
 
