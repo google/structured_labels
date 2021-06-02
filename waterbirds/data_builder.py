@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Functions to create a corrupted MNIST dataset.
+"""Functions to create the waterbirds datasets.
 
 Code based on https://github.com/kohpangwei/group_DRO/blob/master/
 	dataset_scripts/generate_waterbirds.py
 """
 import os, shutil
 import functools
-from copy import deepcopy 
+from copy import deepcopy
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -29,9 +29,13 @@ IMAGE_DIR = '/data/ddmg/slabs/CUB_200_2011'
 SEGMENTATION_DIR = '/data/ddmg/slabs/segmentations/'
 
 EASY_DATA = True
-# NUM_PLACE_IMAGES = 8000 if EASY_DATA else 10000
-# WATER_IMG_DIR = 'water_easy' if EASY_DATA else 'water'
-# LAND_IMG_DIR = 'land_easy' if EASY_DATA else 'land'
+
+
+
+NUM_PLACE_IMAGES_CLEAN = 8000
+WATER_IMG_DIR_CLEAN = 'water_easy'
+LAND_IMG_DIR_CLEAN = 'land_easy'
+
 NUM_PLACE_IMAGES = 10000
 WATER_IMG_DIR = 'water'
 LAND_IMG_DIR = 'land'
@@ -188,9 +192,18 @@ def get_weights(data_frame):
 
 
 def create_images_labels(bird_data_frame, water_images, land_images, py1_y0=1,
-	pflip0=.1, pflip1=.1, rng=None):
+	pflip0=.1, pflip1=.1, clean_back='False', rng=None, asymmetry=None):
 	if rng is None:
 		rng = np.random.RandomState(0)
+
+	if clean_back == 'True':
+		water_img_dir = WATER_IMG_DIR_CLEAN
+		land_img_dir = LAND_IMG_DIR_CLEAN
+		num_place_images = NUM_PLACE_IMAGES_CLEAN
+	else:
+		water_img_dir = WATER_IMG_DIR
+		land_img_dir = LAND_IMG_DIR
+		num_place_images = NUM_PLACE_IMAGES
 
 	# -- add noise to bird type
 	flip0 = rng.choice(bird_data_frame.shape[0],
@@ -198,8 +211,13 @@ def create_images_labels(bird_data_frame, water_images, land_images, py1_y0=1,
 	bird_data_frame.y0.loc[flip0] = 1 - bird_data_frame.y0.loc[flip0]
 
 	# -- get background type
-	bird_data_frame['y1'] = rng.binomial(1,
-		bird_data_frame.y0 * py1_y0 + (1 - bird_data_frame.y0) * (1.0 - py1_y0))
+	if asymmetry is None:
+		bird_data_frame['y1'] = rng.binomial(1,
+			bird_data_frame.y0 * py1_y0 + (1 - bird_data_frame.y0) * (1.0 - py1_y0))
+	else:
+		print(asymmetry * (1.0 - py1_y0))
+		bird_data_frame['y1'] = rng.binomial(1,
+			bird_data_frame.y0 * py1_y0 + (1 - bird_data_frame.y0) * asymmetry * (1.0 - py1_y0))
 
 	# -- add noise
 	flip1 = rng.choice(bird_data_frame.shape[0],
@@ -210,13 +228,13 @@ def create_images_labels(bird_data_frame, water_images, land_images, py1_y0=1,
 	water_image_ids = rng.choice(water_images,
 		size=int(bird_data_frame.y1.sum()), replace=False)
 	water_backgrounds = [
-		f'{WATER_IMG_DIR}/image_{img_id}.jpg' for img_id in water_image_ids
+		f'{water_img_dir}/image_{img_id}.jpg' for img_id in water_image_ids
 	]
 
 	land_image_ids = rng.choice(land_images,
 		size=int((1 - bird_data_frame.y1).sum()), replace=False)
 	land_backgrounds = [
-		f'{LAND_IMG_DIR}/image_{img_id}.jpg' for img_id in land_image_ids
+		f'{land_img_dir}/image_{img_id}.jpg' for img_id in land_image_ids
 	]
 
 	bird_data_frame['background_filename'] = ''
@@ -260,6 +278,9 @@ def load_created_data(experiment_directory, py1_y0_s):
 		tuple(validation_data[i][0].split(',')) for i in range(len(validation_data))
 	]
 
+	if py1_y0_s is None:
+		return train_data, validation_data, None
+
 	test_data_dict = {}
 	for py1_y0_s_val in py1_y0_s:
 		test_data = pd.read_csv(
@@ -270,11 +291,36 @@ def load_created_data(experiment_directory, py1_y0_s):
 		]
 		test_data_dict[py1_y0_s_val] = test_data
 
-	return train_data, validation_data, test_data_dict
+	asym_test_data_dict = {}
+	for py1_y0_s_val in py1_y0_s:
+		test_data = pd.read_csv(
+			f'{experiment_directory}/asym_test_shift{py1_y0_s_val}.txt'
+		).values.tolist()
+		test_data = [
+			tuple(test_data[i][0].split(',')) for i in range(len(test_data))
+		]
+		asym_test_data_dict[py1_y0_s_val] = test_data
 
+	return train_data, validation_data, test_data_dict, asym_test_data_dict
+
+
+def load_asymmetric_test_data(experiment_directory, py1_y0_s):
+
+	test_data_dict = {}
+	for py1_y0_s_val in py1_y0_s:
+		test_data = pd.read_csv(
+			f'{experiment_directory}/asym_test_shift{py1_y0_s_val}.txt'
+			# f'{experiment_directory}/test_shift{py1_y0_s_val}.txt'
+		).values.tolist()
+		test_data = [
+			tuple(test_data[i][0].split(',')) for i in range(len(test_data))
+		]
+		test_data_dict[py1_y0_s_val] = test_data
+
+	return test_data_dict
 
 def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1,
-	py1_y0_s=.5, pflip0=.1, pflip1=.1, random_seed=None):
+	py1_y0_s=.5, pflip0=.1, pflip1=.1, clean_back='False', asym_train='False', random_seed=None):
 
 	if (py0 != 0.8) and (py0 != 0.5):
 		raise NotImplementedError("Only accepting values of 0.8 and 0.5 for now")
@@ -284,12 +330,16 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 	else:
 		rng = np.random.RandomState(random_seed)
 
+	if clean_back == 'True':
+		num_place_images = NUM_PLACE_IMAGES_CLEAN
+	else:
+		num_place_images = NUM_PLACE_IMAGES
+
 	# --- read in all bird image filenames
 
 	df = pd.read_csv(f'{IMAGE_DIR}/images.txt', sep=" ", header=None,
 		names=['img_id', 'img_filename'], index_col='img_id')
-	df = df.sample(frac=1)
-	print(df.head())
+	df = df.sample(frac=1, random_state=random_seed)
 	df.reset_index(inplace=True, drop=True)
 
 	if EASY_DATA:
@@ -304,11 +354,11 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 	df['y0'] = df.apply(get_bird_type, axis=1)
 
 	if py0 == 0.5:
-		land_birds_to_keep = np.random.choice(df[(df.y0==0)].index,
+		land_birds_to_keep = rng.choice(df[(df.y0 == 0)].index,
 			size=df.y0.sum(), replace=False).tolist()
 		water_birds_to_keep = df[(df.y0 == 1)].index.tolist()
 		birds_to_keep = land_birds_to_keep + water_birds_to_keep
-		birds_to_keep = np.random.choice(birds_to_keep,size=len(birds_to_keep),
+		birds_to_keep = rng.choice(birds_to_keep,size=len(birds_to_keep),
 			replace=False).tolist()
 		df = df.iloc[birds_to_keep]
 		df.reset_index(inplace=True, drop=True)
@@ -320,9 +370,15 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 
 	# --- get the train and validation data
 	train_valid_df = df[(df.train_valid_ids == 1)].reset_index(drop=True)
-	train_valid_df, used_water_img_ids, used_land_img_ids = create_images_labels(
-		train_valid_df, NUM_PLACE_IMAGES, NUM_PLACE_IMAGES, py1_y0=py1_y0,
-		pflip0=pflip0, pflip1=pflip1)
+	if asym_train == 'False':
+		train_valid_df, used_water_img_ids, used_land_img_ids = create_images_labels(
+			train_valid_df, num_place_images, num_place_images, py1_y0=py1_y0,
+			pflip0=pflip0, pflip1=pflip1, clean_back=clean_back)
+
+	else: 
+		train_valid_df, used_water_img_ids, used_land_img_ids = create_images_labels(
+			train_valid_df, num_place_images, num_place_images, py1_y0=py1_y0,
+			pflip0=pflip0, pflip1=pflip1, clean_back=clean_back, asymmetry=0.5)
 
 	# --- create train validation split
 	# TODO don't hard code p_tr
@@ -333,7 +389,7 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 
 	# --- save training data
 	train_df = train_valid_df[(train_valid_df.train == 1)].reset_index(drop=True)
-	train_df = get_weights(train_df) 
+	train_df = get_weights(train_df)
 	save_created_data(train_df, experiment_directory=experiment_directory,
 		filename='train')
 
@@ -347,24 +403,43 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 	# --- create + save test data
 	test_df = df[(df.train_valid_ids == 0)].reset_index(drop=True)
 
-	available_water_ids = list(set(range(NUM_PLACE_IMAGES)) - set(
+	available_water_ids = list(set(range(num_place_images)) - set(
 		used_water_img_ids))
-	available_land_ids = list(set(range(NUM_PLACE_IMAGES)) - set(
+	available_land_ids = list(set(range(num_place_images)) - set(
 		used_land_img_ids))
 
+	# symmetric
 	for py1_y0_s_val in py1_y0_s:
 		curr_test_df = test_df.copy()
 		curr_test_df, _, _ = create_images_labels(
 			curr_test_df, available_water_ids, available_land_ids, py1_y0=py1_y0_s_val,
-			pflip0=pflip0, pflip1=pflip1)
+			pflip0=pflip0, pflip1=pflip1, clean_back=clean_back)
 
 		curr_test_df = get_weights(curr_test_df)
 
 		save_created_data(curr_test_df, experiment_directory=experiment_directory,
 			filename=f'test_shift{py1_y0_s_val}')
 
+	# asymmetric
+	for py1_y0_s_val in py1_y0_s:
+		curr_test_df = test_df.copy()
+		curr_test_df, _, _ = create_images_labels(
+			curr_test_df, available_water_ids, available_land_ids, py1_y0=py1_y0_s_val,
+			pflip0=pflip0, pflip1=pflip1, clean_back=clean_back, asymmetry=0.5)
 
-def get_augmentation_data(main_experiment_directory, group, oracle_prop, pflip0, pflip1):
+		curr_test_df = get_weights(curr_test_df)
+
+		save_created_data(curr_test_df, experiment_directory=experiment_directory,
+			filename=f'asym_test_shift{py1_y0_s_val}')
+
+
+def get_augmentation_data(main_experiment_directory, group, oracle_prop, pflip0,
+	pflip1, clean_back='False'):
+
+	if clean_back == 'True':
+		num_place_images = NUM_PLACE_IMAGES_CLEAN
+	else:
+		num_place_images = NUM_PLACE_IMAGES
 
 	original_data = pd.read_csv(
 		f'{main_experiment_directory}/{group}.txt').values.tolist()
@@ -372,73 +447,91 @@ def get_augmentation_data(main_experiment_directory, group, oracle_prop, pflip0,
 		tuple(original_data[i][0].split(',')) for i in range(len(original_data))
 	]
 
-	df = pd.DataFrame(original_data, 
+	df = pd.DataFrame(original_data,
 		columns =['img_filename', 'seg_img', 'background_filename','y0', 'y1',
 		'weights_pos', 'weights_neg', 'weights', 'balanced_weights_pos',
-		'balanced_weights_neg', 'balanced_weights']) 
+		'balanced_weights_neg', 'balanced_weights'])
 
-	df.drop(['seg_img','weights_pos', 'weights_neg', 
-        'weights', 'balanced_weights_pos', 'balanced_weights_neg', 
+	df.drop(['seg_img','weights_pos', 'weights_neg',
+        'weights', 'balanced_weights_pos', 'balanced_weights_neg',
         'balanced_weights'], inplace = True, axis = 1)
-	
+
 	df['y0'] = df['y0'].astype(float)
 	df['y1'] = df['y1'].astype(float)
+
 
 	df['img_filename'] = df.img_filename.str.replace(f'{IMAGE_DIR}/images/', '')
 	df['background_filename'] = df.background_filename.str.replace(
 		f'{DATA_DIR}/places_data/', '')
 
-	aug_n2 = int(oracle_prop * df.shape[0]/2)
+	aug_n = int(oracle_prop * df.shape[0])
 
-	water_bird_index = np.random.choice(
-		df[(df.img_filename.str.contains('Gull'))].index.tolist(), 
-		size = aug_n2
+	aug_bird_index = np.random.choice(
+		df.index.tolist(),
+		size=aug_n
 	).tolist()
 
-	land_bird_index = np.random.choice(
-		df[(df.img_filename.str.contains('Warbler'))].index.tolist(), 
-		size = aug_n2
-	).tolist()
+	non_aug_bird_index = list(set(range(df.shape[0])) - set(aug_bird_index))
 
-	aug_bird_index = water_bird_index + land_bird_index
+
 	aug_df = df.iloc[aug_bird_index].reset_index(drop = True)
 	aug_df.drop(['background_filename', 'y0', 'y1'], axis=1, inplace=True)
 
 	aug_df['y0'] = aug_df.apply(get_bird_type, axis=1)
 	aug_df, _, _ = create_images_labels(
-		aug_df, NUM_PLACE_IMAGES, NUM_PLACE_IMAGES, py1_y0=0.5,
-		pflip0=pflip0, pflip1=pflip1)
+		aug_df, num_place_images, num_place_images, py1_y0=0.5,
+		pflip0=pflip0, pflip1=pflip1, clean_back=clean_back)
 
 	aug_df = aug_df[df.columns]
-	df = df.append(aug_df, ignore_index=True)
-	return df
+	non_aug_df = df.iloc[non_aug_bird_index].reset_index(drop=True)
 
+	final_df = non_aug_df.append(aug_df, ignore_index=True)
+
+	final_df = final_df.sample(frac=1.0)
+
+	return final_df
 
 def create_save_waterbird_oracle_lists(experiment_directory, main_experiment_directory,
-	oracle_prop, py1_y0_s, pflip0, pflip1, random_seed):
-	
-	train_df = get_augmentation_data(main_experiment_directory, 'train', 
+	oracle_prop, py1_y0_s, pflip0, pflip1, clean_back, random_seed):
+
+	train_df = get_augmentation_data(main_experiment_directory, 'train',
 		oracle_prop, pflip0, pflip1)
-	train_df = get_weights(train_df) 
+	train_df = get_weights(train_df)
 	save_created_data(train_df, experiment_directory=experiment_directory,
 		filename='train')
 
 	valid_df = get_augmentation_data(main_experiment_directory, 'validation',
-		oracle_prop, pflip0, pflip1)
-	valid_df = get_weights(valid_df) 
+		oracle_prop, pflip0, pflip1, clean_back)
+	valid_df = get_weights(valid_df)
 	save_created_data(valid_df, experiment_directory=experiment_directory,
 		filename='validation')
 
 	for py1_y0_s_val in py1_y0_s:
-		shutil.copy(f'{main_experiment_directory}/test_shift{py1_y0_s_val}.txt', 
+		shutil.copy(f'{main_experiment_directory}/test_shift{py1_y0_s_val}.txt',
 			f'{experiment_directory}/test_shift{py1_y0_s_val}.txt')
 
+		shutil.copy(f'{main_experiment_directory}/asym_test_shift{py1_y0_s_val}.txt',
+			f'{experiment_directory}/asym_test_shift{py1_y0_s_val}.txt')
+		
 
 def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
-	pflip1=.1, oracle_prop=0.0, Kfolds=0, random_seed=None):
+	pflip1=.1, oracle_prop=0.0, Kfolds=0, clean_back='False', asym_train='False', random_seed=None):
 
-	experiment_directory = (f'{DATA_DIR}/experiment_data/'
-		f'rs{random_seed}_py0{py0}_py1_y0{py1_y0}')
+	if asym_train == 'False':
+		if clean_back == 'True':
+			experiment_directory = (f'{DATA_DIR}/experiment_data/'
+				f'cleanback_rs{random_seed}_py0{py0}_py1_y0{py1_y0}_pfilp{pflip0}')
+		else:
+			experiment_directory = (f'{DATA_DIR}/experiment_data/'
+				f'rs{random_seed}_py0{py0}_py1_y0{py1_y0}_pfilp{pflip0}')
+
+	if asym_train == 'True':
+		if clean_back == 'True':
+			experiment_directory = (f'{DATA_DIR}/experiment_data/'
+				f'asym_cleanback_rs{random_seed}_py0{py0}_py1_y0{py1_y0}_pfilp{pflip0}')
+		else:
+			experiment_directory = (f'{DATA_DIR}/experiment_data/'
+				f'asym_rs{random_seed}_py0{py0}_py1_y0{py1_y0}_pfilp{pflip0}')
 
 	# --- generate splits if they dont exist
 	if not os.path.exists(f'{experiment_directory}/train.txt'):
@@ -453,31 +546,38 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 			py1_y0_s=py1_y0_s,
 			pflip0=pflip0,
 			pflip1=pflip1,
+			clean_back=clean_back,
+			asym_train=asym_train, 
 			random_seed=random_seed)
 
 	if oracle_prop > 0.0:
 		main_experiment_directory = deepcopy(experiment_directory)
-		experiment_directory = (f'{DATA_DIR}/experiment_data/'
-			f'oracle_aug_rs{random_seed}_py0{py0}_py1_y0{py1_y0}')
+		if clean_back == 'True':
+			experiment_directory = (f'{DATA_DIR}/experiment_data/'
+				f'cleanback_oracle{oracle_prop}_aug_rs{random_seed}_py0{py0}_py1_y0{py1_y0}_pfilp{pflip0}')
+
+		else:
+			experiment_directory = (f'{DATA_DIR}/experiment_data/'
+				f'oracle_aug{oracle_prop}_rs{random_seed}_py0{py0}_py1_y0{py1_y0}_pfilp{pflip0}')
 
 		if not os.path.exists(f'{experiment_directory}/train.txt'):
 			if not os.path.exists(experiment_directory):
 				os.mkdir(experiment_directory)
 
 			create_save_waterbird_oracle_lists(
-				experiment_directory = experiment_directory, 
-				main_experiment_directory = main_experiment_directory, 
-				oracle_prop=oracle_prop, 
+				experiment_directory = experiment_directory,
+				main_experiment_directory = main_experiment_directory,
+				oracle_prop=oracle_prop,
 				py1_y0_s=py1_y0_s,
 				pflip0=pflip0,
 				pflip1=pflip1,
+				clean_back=clean_back,
 				random_seed=random_seed)
 
-		
-	# --load splits
-	train_data, valid_data, shifted_data_dict = load_created_data(
-		experiment_directory=experiment_directory, py1_y0_s=py1_y0_s)
 
+	# --load splits
+	train_data, valid_data, shifted_data_dict, asym_shifted_data_dict = load_created_data(
+		experiment_directory=experiment_directory, py1_y0_s=py1_y0_s)
 	# --this helps auto-set training steps at train time
 	training_data_size = len(train_data)
 
@@ -490,8 +590,8 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 
 		dataset = tf.data.Dataset.from_tensor_slices(train_data)
 		dataset = dataset.map(map_to_image_label_given_pixel, num_parallel_calls=1)
-		# dataset = dataset.shuffle(int(1e5)).batch(batch_size).repeat(num_epochs)
-		dataset = dataset.batch(batch_size).repeat(num_epochs)
+		dataset = dataset.shuffle(int(1e5)).batch(batch_size).repeat(num_epochs)
+		# dataset = dataset.batch(batch_size).repeat(num_epochs)
 		return dataset
 
 	# Build an iterator over validation batches
@@ -501,7 +601,8 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 			pixel=params['pixel'])
 		batch_size = params['batch_size']
 		valid_dataset = tf.data.Dataset.from_tensor_slices(valid_data)
-		valid_dataset = valid_dataset.map(map_to_image_label_given_pixel, num_parallel_calls=1)
+		valid_dataset = valid_dataset.map(map_to_image_label_given_pixel,
+			num_parallel_calls=1)
 		valid_dataset = valid_dataset.batch(batch_size, drop_remainder=True).repeat(1)
 		return valid_dataset
 
@@ -510,16 +611,19 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 		effective_validation_size = int(int(len(valid_data) / Kfolds) * Kfolds)
 		batch_size = int(effective_validation_size / Kfolds)
 
-		valid_splits = np.random.choice(len(valid_data), size=effective_validation_size,
-			replace=False).tolist()
+		valid_splits = np.random.choice(len(valid_data),
+			size=effective_validation_size, replace=False).tolist()
 
 		valid_splits = [
-			valid_splits[i:i + batch_size] for i in range(0, effective_validation_size, batch_size)
+			valid_splits[i:i + batch_size] for i in range(0, effective_validation_size,
+				batch_size)
 		]
 
 		def Kfold_input_fn_creater(foldid):
 			fold_examples = valid_splits[foldid]
-			valid_fold_data = [valid_data[i] for i in range(len(valid_data)) if i in fold_examples]
+			valid_fold_data = [
+				valid_data[i] for i in range(len(valid_data)) if i in fold_examples
+			]
 
 			def Kfold_input_fn(params):
 				map_to_image_label_given_pixel = functools.partial(map_to_image_label,
@@ -532,12 +636,14 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 	else:
 		Kfold_input_fn_creater = None
 
-
 	# Build an iterator over the heldout set (shifted distribution).
-	def eval_input_fn_creater(py, params):
+	def eval_input_fn_creater(py, params, asym=False):
 		map_to_image_label_given_pixel = functools.partial(map_to_image_label,
 			pixel=params['pixel'])
-		shifted_test_data = shifted_data_dict[py]
+		if asym:
+			shifted_test_data = asym_shifted_data_dict[py]
+		else:
+			shifted_test_data = shifted_data_dict[py]
 		batch_size = params['batch_size']
 
 		def eval_input_fn():

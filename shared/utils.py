@@ -65,6 +65,7 @@ def tried_config(config, base_dir):
 	hash_string = config_hasher(config)
 	hash_dir = os.path.join(base_dir, 'tuning', hash_string)
 	performance_file = os.path.join(hash_dir, 'performance.pkl')
+	# performance_file = os.path.join(hash_dir, 'asym_performance.pkl')
 	return os.path.isfile(performance_file)
 
 
@@ -77,6 +78,7 @@ def tried_config_file(config, base_dir):
 	hash_string = config_hasher(config)
 	hash_dir = os.path.join(base_dir, 'tuning', hash_string)
 	performance_file = os.path.join(hash_dir, 'performance.pkl')
+	# performance_file = os.path.join(hash_dir, 'asym_performance.pkl')
 	if os.path.isfile(performance_file):
 		return config
 

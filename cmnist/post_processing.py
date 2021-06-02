@@ -16,49 +16,50 @@
 Script collects results from different experiment settings and different models
 then produces the main plot.
 """
-
-import itertools
-import logging
-import multiprocessing
 import os
-import pickle
-
 from absl import app
 from absl import flags
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-import tqdm
-
-from shared.utils import config_hasher, tried_config
-from cmnist import configurator
+from pdfCropMargins import crop
 
 
 FLAGS = flags.FLAGS
-flags.DEFINE_enum('exp_name', 'correlation', ['correlation', 'overlap'],
-									'Name of the experiment.')
+flags.DEFINE_string('exp_name', 'cmnist', 'Name of the experiment.')
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'cmnist'))
+
 NUM_WORKERS = 30
-X_AXIS_VAR = 'py1_y0_s'
+PLOT_LOSS = False
+NUM_REPS = 10
+# https://gist.github.com/thriveth/8560036
 
 MODEL_TO_PLOT_SPECS = {
-	'slabs': {'color': '#ff7f0e', 'label': 'SLABS (ours)'},
-	'opslabs': {'color': '#d62728', 'label': 'OP-SLABS (ours)'},
-	'weighted_opslabs': {'color': 'black', 'label': 'W-OP-SLABS (ours)'},
-	'simple_baseline': {'color': '#2ca02c', 'label': 'Simple baseline'},
-	'oracle_aug_0.1': {'color': '#9467bd', 'label': 'Oracle aug (10%)'},
-	'oracle_aug_0.5': {'color': '#e377c2', 'label': 'Oracle aug (50%)'},
+	# 'slabs_main': {
+	# 	'color': '#ff7f0e', 'label': 'iSlabs (ours)', 'linestyle': 'solid'
+	# },
+	'slabs_classic': {
+		'color': '#377eb8', 'label': 'iSlabs-CXV', 'linestyle': 'solid'
+	},
+	'slabs_non_equivalent': {
+		'color': '#a65628', 'label': 'iSlabs (ours)', 'linestyle': 'solid'
+	},
+
+	'weighted_baseline_classic': {
+		'color': '#4daf4a', 'label': 'W-DNN', 'linestyle': 'solid'
+	},
+
+	'simple_baseline_classic': {
+		'color': '#f781bf', 'label': 'DNN', 'linestyle': 'solid'
+	},
 }
 
 
-def plot_errorbars_same_and_shifted(axis,
-																		legend_elements,
-																		results,
-																		model,
-																		metric):
+def plot_errorbars(axis, legend_elements, results, model, metric):
 	"""Plots results for same and shifted test distributions.
 
 	Args:
@@ -76,137 +77,126 @@ def plot_errorbars_same_and_shifted(axis,
 	model_results = results[(results.model == model)]
 	axis.errorbar(
 		model_results.py1_y0_s,
-		model_results[f'shift_distribution_{metric}_mean'],
-		yerr=model_results[f'shift_distribution_{metric}_std'],
-		color=MODEL_TO_PLOT_SPECS[model]['color'])
-
-	axis.errorbar(
-		model_results.py1_y0_s,
-		model_results[f'same_distribution_{metric}_mean'],
-		yerr=model_results[f'same_distribution_{metric}_std'],
+		model_results[f'{metric}_mean'],
+		yerr=model_results[f'{metric}_std'] / np.sqrt(NUM_REPS),
 		color=MODEL_TO_PLOT_SPECS[model]['color'],
-		linestyle='--')
+		linestyle=MODEL_TO_PLOT_SPECS[model]['linestyle'],
+		capsize=5)
+
 	model_legend_entry = Patch(facecolor=MODEL_TO_PLOT_SPECS[model]['color'],
 		label=MODEL_TO_PLOT_SPECS[model]['label'])
 	if legend_elements is not None:
 		legend_elements.append(model_legend_entry)
 
 
-def import_helper(args):
-	"""Imports the dictionary with the results of an experiment.
+def plot_errorclouds(axis, legend_elements, results, model, metric):
+	"""Plots results for same and shifted test distributions.
 
 	Args:
-		args: tuple with model, config where
-			model: str, name of the model we're importing the performance of
-			config: dictionary, expected to have the following: exp_dir, the experiment
-				directory random_seed,  random seed for the experiment py1_y0_s,
-				probability of y1=1| y0=1 in the shifted test distribution alpha,
-				MMD/cross prediction penalty sigma,  kernel bandwidth for the MMD penalty
-				l2_penalty,  regularization parameter dropout_rate,  drop out rate
-				embedding_dim,  dimension of the final representation/embedding
-				unused_kwargs, other key word args passed to xmanager but not needed here
+		axis: matplotlib plot axis
+		legend_elements: list of legend elements to append to if
+			None, no legend key is added for this model
+		results: pandas dataframe with all models' results
+		model: model to plot
+		metric: metric to plot, one of loss or acc
 
 	Returns:
-		pandas dataframe of results if the file was found, none otherwise
+		None. Just adds the errorbars to an existing plot.
 	"""
-	model, config = args
-	hash_string = config_hasher(config)
-	hash_dir = os.path.join(BASE_DIR, 'tuning', hash_string)
-	performance_file = os.path.join(hash_dir, 'performance.pkl')
+	# TODO x-axis variable
+	model_results = results[(results.model == model)]
+	plt.plot(model_results.py1_y0_s,
+		model_results[f'{metric}_mean'], '.',
+		color=MODEL_TO_PLOT_SPECS[model]['color'])
 
-	if not os.path.exists(performance_file):
-		logging.error('Couldnt find %s', performance_file)
-		return None
+	axis.plot(
+		model_results.py1_y0_s,
+		model_results[f'{metric}_mean'],
+		color=MODEL_TO_PLOT_SPECS[model]['color'],
+		linestyle=MODEL_TO_PLOT_SPECS[model]['linestyle'],
+		linewidth=1)
 
-	results_dict = pickle.load(open(performance_file, 'rb'))
-	results_dict.update(config)
-	results_dict['model'] = model
-	return pd.DataFrame(results_dict, index=[0])
+	lower = model_results[f'{metric}_mean'] - model_results[f'{metric}_std'] / np.sqrt(NUM_REPS)
+	upper = model_results[f'{metric}_mean'] + model_results[f'{metric}_std'] / np.sqrt(NUM_REPS)
+
+	axis.fill_between(model_results.py1_y0_s, lower, upper, alpha=0.2,
+			color=MODEL_TO_PLOT_SPECS[model]['color'], linewidth=1)
+
+	model_legend_entry = Patch(facecolor=MODEL_TO_PLOT_SPECS[model]['color'],
+		label=MODEL_TO_PLOT_SPECS[model]['label'])
+	if legend_elements is not None:
+		legend_elements.append(model_legend_entry)
 
 
 def main(argv):
 	del argv
-	all_config = []
-	for model in MODEL_TO_PLOT_SPECS.keys():
-		model_configs = configurator.get_sweep(FLAGS.exp_name, model)
-		available_configs = [tried_config(config, base_dir=BASE_DIR) for config
-														in model_configs]
-		model_configs = list(itertools.compress(model_configs, available_configs))
-		all_config.extend([(model, config) for config in model_configs])
-
-	pool = multiprocessing.Pool(NUM_WORKERS)
 	res = []
-	for config_res in tqdm.tqdm(pool.imap_unordered(import_helper, all_config),
-		total=len(all_config)):
-		res.append(config_res)
-
+	for model in MODEL_TO_PLOT_SPECS.keys():
+		try:
+			model_res = pd.read_csv(f'{BASE_DIR}/final_models/{model}.csv')
+		except FileNotFoundError as e:
+			print(e)
+			continue
+		res.append(model_res)
 	res = pd.concat(res, axis=0, ignore_index=True, sort=False)
+	available_models = res.model.unique().tolist()
 
 	results_dir = os.path.join(BASE_DIR, 'results')
 	if not os.path.exists(results_dir):
 		os.system(f'mkdir -p {results_dir}')
 
-	res.to_csv(
-		os.path.join(results_dir, f'{FLAGS.exp_name}_xval_results.csv'),
-		index=False)
-	# TODO: x-axis variable
-	res = res.groupby(
-		['model', 'py1_y0_s', 'sigma', 'alpha', 'l2_penalty', 'embedding_dim',
-		'dropout_rate']).agg({
-			'validation_accuracy': ['mean', 'std'],
-			'same_distribution_accuracy': ['mean', 'std'],
-			'shift_distribution_accuracy': ['mean', 'std'],
-			'validation_loss': ['mean', 'std'],
-			'same_distribution_loss': ['mean', 'std'],
-			'shift_distribution_loss': ['mean', 'std']
-		}).reset_index()
-	res.columns = ['_'.join(col).strip() for col in res.columns.values]
-	res.rename(
-		{
-			'model_': 'model',
-			'py1_y0_s_': 'py1_y0_s',
-			'sigma_': 'sigma',
-			'alpha_': 'alpha',
-			'l2_penalty_': 'l2_penalty',
-			'dropout_rate_': 'dropout_rate',
-			'embedding_dim_': 'embedding_dim',
-		},
-		axis=1,
-		inplace=True)
+	if PLOT_LOSS:
+		_, axes = plt.subplots(1, 2, figsize=(14, 5))
+		legend_elements = []
 
-	idx = res.groupby(
-		['model',
-		X_AXIS_VAR])['validation_loss_mean'].transform(min) == res[
-		'validation_loss_mean']
-	res_min_loss = res[idx].copy().reset_index(drop=True)
+		for model in available_models:
+			print(f'plot {model}')
+			plot_errorbars(axes[0], legend_elements, res, model, 'accuracy')
+			plot_errorbars(axes[1], None, res, model, 'loss')
 
-	_, axes = plt.subplots(1, 2, figsize=(14, 5))
-	legend_elements = [
-		Line2D([0], [0],
-			color='black',
-			lw=3,
-			linestyle='--',
-			label='Same distribution'),
-		Line2D([0], [0], color='black', lw=3, label='Shifted distribution')
-	]
+		axes[0].set_xlabel('Conditional probability in shifted distribution')
+		axes[0].set_ylabel('Accuracy')
+		axes[0].legend(handles=legend_elements, loc='lower right')
 
-	for model in MODEL_TO_PLOT_SPECS.keys():
-		plot_errorbars_same_and_shifted(axes[0], legend_elements, res_min_loss,
-			model, 'accuracy')
-		plot_errorbars_same_and_shifted(axes[1], None, res_min_loss,
-			model, 'loss')
+		axes[1].set_xlabel('Conditional probability in shifted distribution')
+		axes[1].set_ylabel('Loss')
+		axes[1].legend(handles=legend_elements, loc='upper right')
+		plt.savefig(os.path.join(results_dir, f'{FLAGS.exp_name}_plot.pdf'))
+		plt.clf()
+		plt.close()
 
-	axes[0].set_xlabel('Conditional probability in shifted distribution')
-	axes[0].set_ylabel('Accuracy')
-	axes[0].legend(handles=legend_elements, loc='lower right')
+	else:
+		plt.figure(figsize=(8, 5))
+		font = {'size': 22, 'family': 'serif', 'serif': 'Computer Modern Roman'}
+		plt.rc('font', **font)
+		plt.rc('text', usetex=True)
 
-	axes[1].set_xlabel('Conditional probability in shifted distribution')
-	axes[1].set_ylabel('Loss')
-	axes[1].legend(handles=legend_elements, loc='upper right')
-	plt.savefig(os.path.join(results_dir, f'{FLAGS.exp_name}_plot.pdf'))
-	plt.clf()
-	plt.close()
+		legend_elements = []
+		for model in available_models:
+			print(f'plot {model}')
+			plot_errorbars(plt, legend_elements, res, model, 'accuracy')
 
+		plt.axvline(0.98, linestyle='--', color='black')
+		# plt.text(0.91, 0.94, 'Training distribution', rotation=90)
+		legend_elements.append(
+			Line2D([0], [0], color='black', linestyle='dashed',
+				label='Training distribution', lw=2)
+		)
+
+		plt.xlabel(r'P(Digit 3 $|$ magenta corruptions)')
+		plt.ylabel('Accuracy')
+		plt.legend(handles=legend_elements, bbox_to_anchor=(0.8, 0.01),
+			loc='lower right', prop={'size': 12})
+		plt.tight_layout()
+
+		savename = os.path.join(results_dir, f'{FLAGS.exp_name}_plot_uncropped.pdf')
+		cropped_savename = os.path.join(results_dir,
+			f'{FLAGS.exp_name}_plot.pdf')
+
+		plt.savefig(savename)
+		plt.clf()
+		plt.close()
+		crop(["-p", "5", savename, "-o", cropped_savename])
 
 if __name__ == '__main__':
 	app.run(main)

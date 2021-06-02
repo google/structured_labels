@@ -18,6 +18,7 @@
 import tensorflow as tf
 from tensorflow.python.keras import backend
 from tensorflow.keras.applications.resnet50 import ResNet50
+from tensorflow.keras.applications.densenet import DenseNet121
 
 # from tensorflow.keras.layers.experimental import preprocessing
 
@@ -51,6 +52,16 @@ def create_architecture(params):
 
 	elif params['architecture'] == 'from_scratch_resnet':
 		net = ScratchResNet50()
+
+	elif params['architecture'] == 'pretrained_densenet' and (params['random_augmentation'] == "False"):
+		net = PretrainedDenseNet121(
+			embedding_dim=params["embedding_dim"],
+			l2_penalty=params["l2_penalty"])
+
+	elif (params['architecture'] == 'pretrained_densenet') and (params['random_augmentation'] == "True"):
+		net = PretrainedDenseNet121_RandomAugmentation(
+			embedding_dim=params["embedding_dim"],
+			l2_penalty=params["l2_penalty"])
 
 	return net
 
@@ -306,7 +317,7 @@ class PretrainedResNet50_RandomAugmentation(tf.keras.Model):
 		return self.dense(x), x
 
 class RandomResNet50(tf.keras.Model):
-	"""Simple architecture with convolutions + max pooling."""
+	"""Randomly initialized resnet 50."""
 
 	def __init__(self, embedding_dim=10, l2_penalty=0.0):
 		super(RandomResNet50, self).__init__()
@@ -334,8 +345,86 @@ class RandomResNet50(tf.keras.Model):
 			x = self.embedding(x)
 		return self.dense(x), x
 
-class PretrainedResNet101(tf.keras.Model):
+
+
+
+class PretrainedDenseNet121(tf.keras.Model):
+	"""pretrained Densenet architecture."""
+
+	def __init__(self, embedding_dim=10, l2_penalty=0.0,
+		l2_penalty_last_only=False):
+		super(PretrainedDenseNet121, self).__init__()
+		self.embedding_dim = embedding_dim
+
+		self.densenet = DenseNet121(include_top=False, weights='imagenet')
+		self.avg_pool = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')
+
+		if not l2_penalty_last_only:
+			regularizer = tf.keras.regularizers.l2(l2_penalty)
+			for layer in self.densenet.layers:
+				if hasattr(layer, 'kernel'):
+					self.add_loss(lambda layer=layer: regularizer(layer.kernel))
+		# TODO fix this
+		if self.embedding_dim != 10:
+			self.embedding = tf.keras.layers.Dense(self.embedding_dim,
+				kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
+		self.dense = tf.keras.layers.Dense(1,
+			kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
+
+	@tf.function
+	def call(self, inputs, training=False):
+		x = self.densenet(inputs, training)
+		x = self.avg_pool(x)
+		if self.embedding_dim != 10:
+			x = self.embedding(x)
+		return self.dense(x), x
+
+
+
+class PretrainedDenseNet121_RandomAugmentation(tf.keras.Model):
 	"""Simple architecture with convolutions + max pooling."""
+
+	def __init__(self, embedding_dim=10, l2_penalty=0.0,
+		l2_penalty_last_only=False):
+		super(PretrainedDenseNet121_RandomAugmentation, self).__init__()
+		self.embedding_dim = embedding_dim
+
+		self.data_augmentation = tf.keras.Sequential([
+			tf.keras.layers.experimental.preprocessing.RandomFlip("horizontal_and_vertical"),
+			tf.keras.layers.experimental.preprocessing.RandomRotation(0.2)
+		])
+
+		self.densenet = DenseNet121(include_top=False, weights='imagenet')
+		self.avg_pool = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')
+
+		if not l2_penalty_last_only:
+			regularizer = tf.keras.regularizers.l2(l2_penalty)
+			for layer in self.densenet.layers:
+				if hasattr(layer, 'kernel'):
+					self.add_loss(lambda layer=layer: regularizer(layer.kernel))
+		# TODO fix this
+		if self.embedding_dim != 10:
+			self.embedding = tf.keras.layers.Dense(self.embedding_dim,
+				kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
+		self.dense = tf.keras.layers.Dense(1,
+			kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
+
+	@tf.function
+	def call(self, inputs, training=False):
+		if training:
+			x = self.data_augmentation(inputs, training=training)
+		else: 
+			x = inputs
+		x = self.densenet(inputs, training)
+		x = self.avg_pool(x)
+		if self.embedding_dim != 10:
+			x = self.embedding(x)
+		return self.dense(x), x
+
+
+
+class PretrainedResNet101(tf.keras.Model):
+	"""pretrained resent 101"""
 
 	def __init__(self, embedding_dim=10, l2_penalty=0.0):
 		super(PretrainedResNet101, self).__init__()

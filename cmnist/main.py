@@ -22,19 +22,25 @@ from shared import train
 from shared.utils import restrict_GPU_tf
 
 FLAGS = flags.FLAGS
-flags.DEFINE_float('p_tr', .7, 'proportion of data used for training.')
-flags.DEFINE_float('py1_y0', 1, '(unshifted) probability of y1 =1 | y0 = 1.')
+flags.DEFINE_float('p_tr', .8, 'proportion of data used for training.')
+flags.DEFINE_float('py0', .5, 'Probability of y0 = 1.')
+flags.DEFINE_float('py1_y0', 5.0, '(unshifted) probability of y1 =1 | y0 = 1.')
 flags.DEFINE_list('py1_y0_shift_list', [.1, .2, .3, .4, .5, .6, .7, .8, .9, 1.],
 	'(shifted) probability of y1 =1 | y0 = 1.')
 flags.DEFINE_float('pflip0', .1, 'proportion of y0 randomly flipped (noise).')
-flags.DEFINE_float('pflip1', 0.0, 'proportion of y1 randomly flipped (noise).')
+flags.DEFINE_float('pflip1', .1, 'proportion of y1 randomly flipped (noise).')
 flags.DEFINE_integer('npix', 20, 'number of pixels to corrupt.')
 flags.DEFINE_float('oracle_prop', 0.0,
 										'proportion of training data to use for oracle augmentation.')
 
 
+
+
+
 flags.DEFINE_string('exp_dir', '/data/ddmg/slabs/dummy/',
 										'Directory to save trained model in.')
+flags.DEFINE_string('architecture', 'simple',
+										'Architecture to use for training.')
 flags.DEFINE_integer('num_epochs', 10, 'number of epochs.')
 flags.DEFINE_integer('batch_size', 32, 'batch size.')
 flags.DEFINE_integer('training_steps', 3000,
@@ -70,14 +76,16 @@ def main(argv):
 			pflip0=FLAGS.pflip0,
 			pflip1=FLAGS.pflip1,
 			npix=FLAGS.npix,
-			oracle_prop=FLAGS.oracle_prop)
+			oracle_prop=FLAGS.oracle_prop,
+			random_seed=FLAGS.random_seed)
 
-	restrict_GPU_tf(FLAGS.gpuid, memfrac=0.1)
+	restrict_GPU_tf(FLAGS.gpuid)
 
 
 	train.train(
 		exp_dir=FLAGS.exp_dir,
 		dataset_builder=dataset_builder,
+		architecture=FLAGS.architecture,
 		training_steps=FLAGS.training_steps,
 		num_epochs=FLAGS.num_epochs,
 		batch_size=FLAGS.batch_size,

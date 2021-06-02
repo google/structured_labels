@@ -29,6 +29,7 @@ def extract_weights(labels, params):
 		sample_weights_neg = tf.expand_dims(tf.identity(labels['unbalanced_weights'][:, 1]), axis=-1)
 		sample_weights = tf.expand_dims(tf.identity(labels['unbalanced_weights'][:, 2]), axis=-1)
 
+
 	return sample_weights, sample_weights_pos, sample_weights_neg
 
 def flatten_dict(dd, separator='_', prefix=''):

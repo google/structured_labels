@@ -30,7 +30,7 @@ from tensorflow.python.framework import ops, dtypes
 
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
 
-SIGMA_LIST = [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1, 1e2, 1e3]
+SIGMA_LIST = [1e-1, 1, 1e1, 1e2, 1e3]
 
 
 class EvalCheckpointSaverListener(tf.estimator.CheckpointSaverListener):
@@ -204,8 +204,8 @@ def model_fn(features, labels, mode, params):
 			regularization_loss = tf.reduce_sum(net.losses)
 			if params['weighted_mmd'] == 'half':
 				loss = regularization_loss + tf.reduce_mean(sample_weights) * prediction_loss + curr_params["alpha"] * mmd_loss
-				
-			else: 
+
+			else:
 				loss = regularization_loss + prediction_loss + curr_params["alpha"] * mmd_loss
 
 
@@ -236,6 +236,7 @@ def train(exp_dir,
 					alpha,
 					sigma,
 					weighted_mmd,
+					two_way_mmd,
 					balanced_weights,
 					dropout_rate,
 					l2_penalty,
@@ -243,9 +244,10 @@ def train(exp_dir,
 					random_augmentation,
 					random_seed,
 					minimize_logits,
-					warmstart_dir, 
+					warmstart_dir,
 					cleanup,
-					py1_y0_shift_list=None):
+					py1_y0_shift_list=None, 
+					debugger='False'):
 	"""Trains the estimator."""
 
 	scratch_exp_dir = exp_dir.replace('/data/ddmg/slabs/',
@@ -274,6 +276,7 @@ def train(exp_dir,
 		"alpha": alpha,
 		"sigma": sigma,
 		"weighted_mmd": weighted_mmd,
+		"two_way_mmd": two_way_mmd,
 		"balanced_weights": balanced_weights,
 		"dropout_rate": dropout_rate,
 		"l2_penalty": l2_penalty,
@@ -287,9 +290,15 @@ def train(exp_dir,
 	# for sigma decay to work efficiently
 	assert save_every_epochs == update_sigma_every_epochs
 
+	if debugger == 'True':
+		save_checkpoints_steps = 200
+	if 'chexpert' in exp_dir:
+		save_checkpoints_steps = 10000
+	else: 
+		save_checkpoints_steps = 1000
 	run_config = tf.estimator.RunConfig(
 		tf_random_seed=random_seed,
-		save_checkpoints_steps=save_every_epochs * steps_per_epoch,
+		save_checkpoints_steps=save_checkpoints_steps,
 		# save_checkpoints_secs=500,
 		keep_checkpoint_max=2)
 
@@ -299,13 +308,23 @@ def train(exp_dir,
 	else:
 		warm_start = tf.estimator.WarmStartSettings(warmstart_dir)
 		est = tf.estimator.Estimator(
-			model_fn, model_dir=scratch_exp_dir, params=params, config=run_config, 
+			model_fn, model_dir=scratch_exp_dir, params=params, config=run_config,
 			warm_start_from=warm_start)
 	print(f"=====steps_per_epoch {steps_per_epoch}======")
 	if training_steps == 0:
 		training_steps = int(params['num_epochs'] * steps_per_epoch)
 
+	print(f'=======TRAINING STEPS {training_steps}=============')
 
+	if 'chexpert' in exp_dir: 
+		saving_listeners = []
+	else: 
+		saving_listeners = [
+			EvalCheckpointSaverListener(est, train_input_fn, "train"),
+			# EvalCheckpointSaverListener(est, eval_input_fn_creater(0.1, params), "0.1"),
+			EvalCheckpointSaverListener(est, eval_input_fn_creater(0.5, params), "0.5"),
+			EvalCheckpointSaverListener(est, eval_input_fn_creater(0.9, params),"0.9"),
+		]
 	est.train(train_input_fn, steps=training_steps,
 			hooks=[
 			# 	DynamicSigmaHook(
@@ -314,36 +333,32 @@ def train(exp_dir,
 			# 		sigma_value=params['sigma']),
 				profiler.OomReportingHook()
 		],
-		saving_listeners=[
-			EvalCheckpointSaverListener(est, train_input_fn, "train"),
-			EvalCheckpointSaverListener(est, eval_input_fn_creater(0.1, params), "0.1"),
-			EvalCheckpointSaverListener(est, eval_input_fn_creater(0.5, params), "0.5"),
-			EvalCheckpointSaverListener(est, eval_input_fn_creater(0.95, params),
-				"0.95"),
-		]
+		saving_listeners= saving_listeners
 	)
 
 	validation_results = est.evaluate(valid_input_fn)
-	all_results = {"validation": validation_results}
+	sym_results = {"validation": validation_results}
 
+	# ---- non-asymmetric analysis
 	if py1_y0_shift_list is not None:
 		# -- during testing, we dont have access to labels/weights
 		test_params = copy.deepcopy(params)
 		test_params['weighted_mmd'] = 'False'
 		test_params['balanced_weights'] = 'False'
 		for py in py1_y0_shift_list:
-			eval_input_fn = eval_input_fn_creater(py, test_params)
+			eval_input_fn = eval_input_fn_creater(py, test_params, asym=False)
 			distribution_results = est.evaluate(eval_input_fn, steps=1e5)
-			all_results[f'shift_{py}'] = distribution_results
+			sym_results[f'shift_{py}'] = distribution_results
 
 	# save results
 	savefile = f"{exp_dir}/performance.pkl"
-	all_results = train_utils.flatten_dict(all_results)
-	pickle.dump(all_results, open(savefile, "wb"))
+	sym_results = train_utils.flatten_dict(sym_results)
+	pickle.dump(sym_results, open(savefile, "wb"))
+
 
 	# save model
 	print(f'{exp_dir}/saved_model')
 	est.export_saved_model(f'{exp_dir}/saved_model', serving_input_fn)
 
 	# if cleanup == 'True':
-	# train_utils.cleanup_directory(scratch_exp_dir)
+	train_utils.cleanup_directory(scratch_exp_dir)

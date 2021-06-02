@@ -18,12 +18,82 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 
 
-def mmd_loss(embedding, auxiliary_labels, weights_pos, weights_neg, params):
+def mmd_loss(embedding, auxiliary_labels, main_labels, weights_pos, weights_neg, params):
 	""" Computes mmd loss, weighted or unweighted """
-	if weights_pos is None:
-		return mmd_loss_unweighted(embedding, auxiliary_labels, params)
-	return mmd_loss_weighted(embedding, auxiliary_labels,
-		weights_pos, weights_neg, params)
+	if main_labels is None:
+		if weights_pos is None:
+			return mmd_loss_unweighted(embedding, auxiliary_labels, params)
+		return mmd_loss_weighted(embedding, auxiliary_labels,
+			weights_pos, weights_neg, params)
+	else:
+		return mmd_loss_unweighted_two_way(embedding, auxiliary_labels, main_labels, params)
+
+
+def mmd_loss_unweighted_two_way(embedding, auxiliary_labels, main_labels, params):
+	sigma = params['sigma']
+	del params
+
+	kernel = tfp.math.psd_kernels.ExponentiatedQuadratic(
+		amplitude=1.0, length_scale=sigma)
+
+	kernel_mat = kernel.matrix(embedding, embedding)
+
+	if len(auxiliary_labels.shape) == 1:
+		auxiliary_labels = tf.expand_dims(auxiliary_labels, axis=-1)
+	
+	if len(main_labels.shape) == 1:
+		main_labels = tf.expand_dims(main_labels, axis=-1)
+
+
+	# -- y = 1 
+	ypos_pos_label = auxiliary_labels * main_labels
+	ypos_neg_label = (1.0 - auxiliary_labels) * main_labels
+
+	ypos_pos_mask = tf.matmul(ypos_pos_label, tf.transpose(ypos_pos_label))
+	ypos_neg_mask = tf.matmul(ypos_neg_label, tf.transpose(ypos_neg_label))
+	ypos_pos_neg_mask = tf.matmul(ypos_pos_label, tf.transpose(ypos_neg_label))
+
+	ypos_pos_kernel_mean = tf.math.divide_no_nan(
+		tf.reduce_sum(ypos_pos_mask * kernel_mat), tf.reduce_sum(ypos_pos_mask))
+	ypos_neg_kernel_mean = tf.math.divide_no_nan(
+		tf.reduce_sum(ypos_neg_mask * kernel_mat), tf.reduce_sum(ypos_neg_mask))
+	ypos_pos_neg_kernel_mean = tf.math.divide_no_nan(
+		tf.reduce_sum(ypos_pos_neg_mask * kernel_mat), tf.reduce_sum(ypos_pos_neg_mask))
+
+	ypos_mmd_val = ypos_pos_kernel_mean + ypos_neg_kernel_mean - 2 * ypos_pos_neg_kernel_mean
+	ypos_mmd_val = tf.maximum(0.0, ypos_mmd_val)
+
+
+	# -- y = 0 
+
+	yneg_pos_label = auxiliary_labels * (1.0 - main_labels)
+	yneg_neg_label = (1.0 - auxiliary_labels) * (1.0 - main_labels)
+
+	yneg_pos_mask = tf.matmul(yneg_pos_label, tf.transpose(yneg_pos_label))
+	yneg_neg_mask = tf.matmul(yneg_neg_label, tf.transpose(yneg_neg_label))
+	yneg_pos_neg_mask = tf.matmul(yneg_pos_label, tf.transpose(yneg_neg_label))
+
+	yneg_pos_kernel_mean = tf.math.divide_no_nan(
+		tf.reduce_sum(yneg_pos_mask * kernel_mat), tf.reduce_sum(yneg_pos_mask))
+	yneg_neg_kernel_mean = tf.math.divide_no_nan(
+		tf.reduce_sum(yneg_neg_mask * kernel_mat), tf.reduce_sum(yneg_neg_mask))
+	yneg_pos_neg_kernel_mean = tf.math.divide_no_nan(
+		tf.reduce_sum(yneg_pos_neg_mask * kernel_mat), tf.reduce_sum(yneg_pos_neg_mask))
+
+	yneg_mmd_val = yneg_pos_kernel_mean + yneg_neg_kernel_mean - 2 * yneg_pos_neg_kernel_mean
+	yneg_mmd_val = tf.maximum(0.0, yneg_mmd_val)
+
+
+	mmd_val = yneg_mmd_val + ypos_mmd_val
+	pos_kernel_mean = ypos_pos_kernel_mean + yneg_pos_kernel_mean
+	neg_kernel_mean = ypos_neg_kernel_mean + yneg_neg_kernel_mean
+	pos_neg_kernel_mean = ypos_pos_neg_kernel_mean + yneg_pos_neg_kernel_mean
+	pos_neg_kernel_mean = ypos_pos_neg_kernel_mean + yneg_pos_neg_kernel_mean
+
+
+	# return mmd_val, pos_kernel_mean, neg_kernel_mean, pos_neg_kernel_mean, pos_neg_kernel_mean
+	return mmd_val, ypos_mmd_val, yneg_mmd_val, None, None
+
 
 
 def mmd_loss_unweighted(embedding, auxiliary_labels, params):

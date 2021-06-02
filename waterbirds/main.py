@@ -51,6 +51,8 @@ flags.DEFINE_string('weighted_mmd', 'False',
 											'use weighting when computing the mmd?.')
 flags.DEFINE_string('balanced_weights', 'True',
 											'balance weights? aka add numerator.')
+flags.DEFINE_string('two_way_mmd', 'False',
+											'two way mmd?.')
 flags.DEFINE_string('warmstart_dir', 'None',
 											'Directory of saved model to warm start from.')
 
@@ -66,8 +68,14 @@ flags.DEFINE_string('random_augmentation', 'False',
 
 flags.DEFINE_integer('random_seed', 0, 'random seed for tensorflow estimator')
 
+flags.DEFINE_string('clean_back', 'False',
+		'get clean background.')
+
 flags.DEFINE_string('minimize_logits', 'False',
 		'compute mmd wrt to logits if true and embedding if false.')
+flags.DEFINE_string('asym_train', 'False',
+		'asymmetric probability during training time?.')
+
 flags.DEFINE_string('cleanup', 'False',
 		'remove tensorflow artifacts after training to reduce memory usage.')
 flags.DEFINE_string('gpuid', '0', 'Gpu id to run the model on.')
@@ -92,6 +100,8 @@ def main(argv):
 			pflip1=FLAGS.pflip1,
 			Kfolds=FLAGS.Kfolds,
 			oracle_prop=FLAGS.oracle_prop,
+			clean_back=FLAGS.clean_back,
+			asym_train=FLAGS.asym_train,
 			random_seed=FLAGS.random_seed)
 
 	restrict_GPU_tf(FLAGS.gpuid)
@@ -109,13 +119,14 @@ def main(argv):
 		sigma=FLAGS.sigma,
 		balanced_weights=FLAGS.balanced_weights,
 		weighted_mmd=FLAGS.weighted_mmd,
+		two_way_mmd=FLAGS.two_way_mmd,
 		dropout_rate=FLAGS.dropout_rate,
 		l2_penalty=FLAGS.l2_penalty,
 		embedding_dim=FLAGS.embedding_dim,
-		random_augmentation=FLAGS.random_augmentation, 
+		random_augmentation=FLAGS.random_augmentation,
 		random_seed=FLAGS.random_seed,
 		minimize_logits=FLAGS.minimize_logits,
-		warmstart_dir=FLAGS.warmstart_dir, 
+		warmstart_dir=FLAGS.warmstart_dir,
 		cleanup=FLAGS.cleanup,
 		py1_y0_shift_list=py1_y0_shift_list)
 

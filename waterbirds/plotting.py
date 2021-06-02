@@ -27,45 +27,122 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pdfCropMargins import crop
-
+plt.style.use('tableau-colorblind10')
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('exp_name', '5050', 'Name of the experiment.')
+flags.DEFINE_string('experiment_name', '5050', 'Name of the experiment.')
+flags.DEFINE_float('pval', 0.05, 'Pvalue.')
+flags.DEFINE_enum('plot_type', 'main', ['main', 'ablation', 'oracle'], 'which plot?')
+flags.DEFINE_string('clean_back', 'True', 'clean or noisy backgrounds.')
+
+
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'waterbirds'))
 
 NUM_WORKERS = 30
-PLOT_ALL = True
-MAIN_PLOT = False
-NUM_REPS = 10
+PLOT_ALL = False
+MAIN_PLOT = True
 
-MODEL_TO_PLOT_SPECS = {
-	'slabs_classic': {
-		'color': '#377eb8', 'label': 'Ours', 'linestyle': 'solid'
-	},
-	# 'slabs_ts': {
-	# 	'color': '#a65628', 'label': 'Ours (ts)', 'linestyle': 'solid'
-	# },
+def get_model_dict(pval, experiment_name, plot_type):
+	if experiment_name == "8050":
+		del plot_type
+		model_specs = {
+			f'unweighted_slabs_ts{pval}': {
+				'label': 'MMD-reg-T', 'linestyle': 'solid',
+				'color': '#006BA4'
+			},
+			'unweighted_slabs_classic': {
+				'label': 'MMD-reg-C', 'linestyle': 'solid',
+				'color': '#5F9ED1'
+			},
 
-	# 'unweighted_slabs_logit_classic': {
-	# 	'color': '#b8373e', 'label': 'Unweighted ours (logit)', 'linestyle': 'solid'
-	# },
-	'unweighted_slabs_classic': {
-		'color': '#b8373e', 'label': 'Unweighted ours', 'linestyle': 'solid'
-	},
+			'simple_baseline_classic': {
+				'label': 'L2-reg-C', 'linestyle': 'dotted',
+				'color': 'black'
+			},
+			'random_aug_classic': {
+				'label': 'Rand-Aug-C', 'linestyle': 'solid',
+				'color': '#5F6B29'
+			},
 
-	'weighted_baseline_classic': {
-		'color': '#4daf4a', 'label': 'W-DNN', 'linestyle': 'solid'
-	},
-
-	'simple_baseline_classic': {
-		'color': '#f781bf', 'label': 'DNN', 'linestyle': 'solid'
-	},
-}
+		}
 
 
-def plot_errorbars(axis, legend_elements, results, model, metric):
+	if (experiment_name == "8090") and (plot_type == 'main'):
+		model_specs = {
+			# f'slabs_weighted_bal_ts{pval}': {
+			# 	'label': 'Ours', 'linestyle': 'solid',
+			# 	'color': '#C85200'
+			# },
+			'simple_baseline_classic': {
+				'label': 'DNN', 'linestyle': 'dotted',
+				'color': 'black'
+			},
+			# 'weighted_baseline_classic': {
+			# 	'label': 'wL2-reg-C', 'linestyle': 'solid',
+			# 	'color': '#ABABAB'
+			# },
+
+			# 'random_aug_classic': {
+			# 	'label': 'Rand-Aug-C', 'linestyle': 'solid',
+			# 	'color': '#5F6B29'
+			# },
+
+		}
+
+	if (experiment_name == "8090") and (plot_type == 'ablation'):
+		model_specs = {
+			f'slabs_weighted_bal_ts{pval}': {
+				'label': 'wMMD-reg-T', 'linestyle': 'solid',
+				'color': '#C85200'
+			},
+
+			f'slabs_weighted_bal_classic': {
+				'label': 'wMMD-reg-C', 'linestyle': 'solid',
+				'color': '#FFBC79'
+			},
+
+			f'unweighted_slabs_ts{pval}': {
+				'label': 'MMD-reg-T', 'linestyle': 'solid',
+				'color': '#006BA4'
+			},
+			'unweighted_slabs_classic': {
+				'label': 'MMD-reg-C', 'linestyle': 'solid',
+				'color': '#5F9ED1'
+			},
+
+			f'unweighted_slabs_uts{pval}': {
+				'label': 'MMD-reg-uT', 'linestyle': 'solid',
+				'color': '#A2C8EC'
+			},
+
+		}
+	if (experiment_name == "8090") and (plot_type == 'oracle'):
+		model_specs = {
+			f'slabs_weighted_bal_ts{pval}': {
+				'label': 'wMMD-reg-T', 'linestyle': 'solid',
+				'color': '#C85200'
+			},
+
+			'oracle_aug_0.1_classic': {
+				'label': 'Or-aug-10\%-C', 'linestyle': 'solid',
+				'color': '#945634'
+			},
+			'oracle_aug_0.5_classic': {
+				'label': 'Or-aug-50\%-C', 'linestyle': 'solid',
+				'color': '#006BA4'
+			},
+			'oracle_aug_1.0_classic': {
+				'label': 'Or-aug-100\%-C', 'linestyle': 'solid',
+				'color': '#a48b00'
+			},
+		}
+
+	return model_specs
+
+
+def plot_errorbars(model_to_spec, axis, legend_elements, results, model, metric):
 	"""Plots results for same and shifted test distributions.
 
 	Args:
@@ -84,18 +161,20 @@ def plot_errorbars(axis, legend_elements, results, model, metric):
 	axis.errorbar(
 		model_results.py1_y0_s,
 		model_results[f'{metric}_mean'],
-		yerr=model_results[f'{metric}_std']/np.sqrt(10),
-		color=MODEL_TO_PLOT_SPECS[model]['color'],
-		linestyle=MODEL_TO_PLOT_SPECS[model]['linestyle'],
+		yerr=model_results[f'{metric}_std'] / np.sqrt(20),
+		color=model_to_spec[model]['color'],
+		# linestyle=model_to_spec[model]['linestyle'],
+		linewidth=3,
+		label=model_to_spec[model]['label'],
 		capsize=5)
 
-	model_legend_entry = Patch(facecolor=MODEL_TO_PLOT_SPECS[model]['color'],
-		label=MODEL_TO_PLOT_SPECS[model]['label'])
-	if legend_elements is not None:
-		legend_elements.append(model_legend_entry)
+	# model_legend_entry = Patch(facecolor=model_to_spec[model]['color'],
+	# 	label=model_to_spec[model]['label'])
+	# if legend_elements is not None:
+	# 	legend_elements.append(model_legend_entry)
 
 
-def plot_errorclouds(axis, legend_elements, results, model, metric):
+def plot_errorclouds(model_to_spec, axis, legend_elements, results, model, metric):
 	"""Plots results for same and shifted test distributions.
 
 	Args:
@@ -113,38 +192,39 @@ def plot_errorclouds(axis, legend_elements, results, model, metric):
 	model_results = results[(results.model == model)]
 	plt.plot(model_results.py1_y0_s,
 		model_results[f'{metric}_mean'], '.',
-		color=MODEL_TO_PLOT_SPECS[model]['color'])
+		color=model_to_spec[model]['color'])
 
 	axis.plot(
 		model_results.py1_y0_s,
 		model_results[f'{metric}_mean'],
-		color=MODEL_TO_PLOT_SPECS[model]['color'],
-		linestyle=MODEL_TO_PLOT_SPECS[model]['linestyle'],
+		color=model_to_spec[model]['color'],
+		label=model_to_spec[model]['label'],
 		linewidth=1)
 
-	lower = model_results[f'{metric}_mean'] - model_results[f'{metric}_std']/np.sqrt(10)
-	upper = model_results[f'{metric}_mean'] + model_results[f'{metric}_std']/np.sqrt(10)
+	lower = model_results[f'{metric}_mean'] - model_results[f'{metric}_std']
+	upper = model_results[f'{metric}_mean'] + model_results[f'{metric}_std']
 
 	axis.fill_between(model_results.py1_y0_s, lower, upper, alpha=0.1,
-			color=MODEL_TO_PLOT_SPECS[model]['color'], linewidth=2)
+			color=model_to_spec[model]['color'], linewidth=2)
 
-	model_legend_entry = Patch(facecolor=MODEL_TO_PLOT_SPECS[model]['color'],
-		label=MODEL_TO_PLOT_SPECS[model]['label'])
+	model_legend_entry = Patch(facecolor=model_to_spec[model]['color'],
+		label=model_to_spec[model]['label'])
 	if legend_elements is not None:
 		legend_elements.append(model_legend_entry)
 
 
 def main(argv):
 	del argv
+	model_to_spec = get_model_dict(FLAGS.pval, FLAGS.experiment_name, FLAGS.plot_type)
 	results_dir = os.path.join(BASE_DIR, 'results')
 	if not os.path.exists(results_dir):
 		os.system(f'mkdir -p {results_dir}')
 
 	if PLOT_ALL:
 		res = []
-		for model in MODEL_TO_PLOT_SPECS.keys():
+		for model in model_to_spec.keys():
 			try:
-				model_res = pd.read_csv(f'{BASE_DIR}/final_models/{model}_{FLAGS.exp_name}.csv')
+				model_res = pd.read_csv(f'{BASE_DIR}/final_models/{model}_{FLAGS.experiment_name}_{FLAGS.clean_back}.csv')
 			except FileNotFoundError as e:
 				print(e)
 				continue
@@ -157,40 +237,37 @@ def main(argv):
 
 		for model in available_models:
 			print(f'plot {model}')
-			plot_errorbars(axes[0], legend_elements, res, model, 'auc')
-			plot_errorbars(axes[1], None, res, model, 'accuracy')
-			# plot_errorbars(axes[2], None, res, model, 'loss')
+			plot_errorbars(model_to_spec, axes[0], legend_elements, res, model, 'auc')
+			plot_errorbars(model_to_spec, axes[1], None, res, model, 'accuracy')
+			# plot_errorbars(model_to_spec, axes[2], None, res, model, 'loss')
 
-		py0 = float(FLAGS.exp_name[:2]) / 100.0
-		py1_y0 = float(FLAGS.exp_name[2:]) / 100.0
+		py0 = float(FLAGS.experiment_name[:2]) / 100.0
+		py1_y0 = float(FLAGS.experiment_name[2:]) / 100.0
 
 		axes[0].set_xlabel('Conditional probability in shifted distribution')
 		axes[0].set_ylabel('AUC')
 		axes[0].axvline(py1_y0, linestyle='--', color='black')
-		axes[0].legend(handles=legend_elements, loc='lower right')
-
-
+		# axes[0].legend(handles=legend_elements, loc='lower right')
 		axes[1].set_xlabel('Conditional probability in shifted distribution')
 		axes[1].set_ylabel('Accuracy')
 		axes[1].axvline(py1_y0, linestyle='--', color='black')
 		# axes[1].legend(handles=legend_elements, loc='upper left')
-
+		axes[1].legend(loc='upper left')
 		# axes[2].set_xlabel('Conditional probability in shifted distribution')
 		# axes[2].set_ylabel('Binary cross-entropy (Loss)')
 		# axes[2].axvline(0.95, linestyle='--', color='black')
 		# axes[2].legend(handles=legend_elements, loc='upper right')
-
-
 		plt.suptitle(f'P(water bird) = {py0}, P(bird | background) = {py1_y0}')
-		plt.savefig(os.path.join(results_dir, f'waterbirds_{FLAGS.exp_name}_plot.pdf'))
+		plt.savefig(os.path.join(results_dir,
+			f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_plot.pdf'))
 		plt.clf()
 		plt.close()
 
 	elif MAIN_PLOT:
 		res = []
-		for model in MODEL_TO_PLOT_SPECS.keys():
+		for model in model_to_spec.keys():
 			try:
-				model_res = pd.read_csv(f'{BASE_DIR}/final_models/{model}.csv')
+				model_res = pd.read_csv(f'{BASE_DIR}/final_models/{model}_{FLAGS.experiment_name}_{FLAGS.clean_back}.csv')
 			except FileNotFoundError as e:
 				print(e)
 				continue
@@ -198,24 +275,34 @@ def main(argv):
 		res = pd.concat(res, axis=0, ignore_index=True, sort=False)
 		available_models = res.model.unique().tolist()
 
-		plt.figure(figsize=(8, 5))
-		font = {'size': 22, 'family': 'serif', 'serif': 'Computer Modern Roman'}
+		py1_y0 = float(FLAGS.experiment_name[2:]) / 100.0
+		plt.figure(figsize=(7, 5))
+		font = {'size': 16, 'family': 'serif', 'serif': 'Computer Modern Roman'}
 		plt.rc('font', **font)
 		plt.rc('text', usetex=True)
 
 		legend_elements = []
 		for model in available_models:
 			print(f'plot {model}')
-			plot_errorbars(plt, legend_elements, res, model, 'accuracy')
+			plot_errorbars(model_to_spec, plt, legend_elements, res, model, 'auc')
 
-		savename = os.path.join(results_dir, f'waterbirds_{FLAGS.exp_name}_plot.pdf')
-		cropped_savename = os.path.join(results_dir,
-			f'waterbirds_{FLAGS.exp_name}_plot_cropped.pdf')
+		# savename = os.path.join(results_dir,
+		# 	f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_{FLAGS.clean_back}_{FLAGS.plot_type}.pdf')
+		# cropped_savename = os.path.join(results_dir,
+		# 	f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_{FLAGS.clean_back}_{FLAGS.plot_type}_cropped.pdf')
 
-		plt.axvline(0.95, linestyle='--', color='black')
-		plt.xlabel(r'P(Water bird $|$ water background)')
-		plt.ylabel('Accuracy')
-		plt.legend(handles=legend_elements, loc='lower right', prop={'size': 12})
+		savename = os.path.join(results_dir, f'for_alex_dnn.pdf')
+		print(savename)
+		cropped_savename = os.path.join(results_dir, f'cropped_for_alex_dnn.pdf')
+		plt.axvline(py1_y0, linestyle='--', color='black')
+		plt.xlabel(r'P(Water bird $|$ water background) = P(land bird $|$ land background) at test time')
+		plt.ylabel('AUROC')
+		if (FLAGS.experiment_name == '8090') and (FLAGS.plot_type == 'ablation'):
+			plt.legend(bbox_to_anchor=(0.0, 0.55), loc='lower left', prop={'size': 12})
+		elif FLAGS.experiment_name == '8090':
+			plt.legend(bbox_to_anchor=(0.55, 0.01), loc='lower left', prop={'size': 12})
+		else:
+			plt.legend(bbox_to_anchor=(0.7, 0.0), loc='lower left', prop={'size': 12})
 		plt.tight_layout()
 		plt.savefig(savename)
 		plt.clf()
@@ -264,9 +351,9 @@ def main(argv):
 		for random_seed in baseline_res.random_seed.unique():
 			res_rs = baseline_res[(baseline_res.random_seed == random_seed)]
 			alpha = 1 if random_seed == -1 else 0.2
-			axes[0].plot(res_rs.py1_y0_s, res_rs.accuracy_mean, linewidth=1, alpha=alpha, color='black')
-			axes[0].plot(res_rs.py1_y0_s, res_rs.accuracy_mean, 'o', alpha=alpha, color='black')
-		axes[0].set_xlabel(r'P(Water bird $|$ water background)')
+			axes[0].plot(model_to_spec, res_rs.py1_y0_s, res_rs.accuracy_mean, linewidth=1, alpha=alpha, color='black')
+			axes[0].plot(model_to_spec, res_rs.py1_y0_s, res_rs.accuracy_mean, 'o', alpha=alpha, color='black')
+		axes[0].set_xlabel(r'P(Water bird $|$ water background) at test time')
 		axes[0].set_ylabel('Accuracy')
 		axes[0].title.set_text(r'DNN')
 
@@ -280,17 +367,18 @@ def main(argv):
 		for random_seed in ours_res.random_seed.unique():
 			res_rs = ours_res[(ours_res.random_seed == random_seed)]
 			alpha = 1 if random_seed == -1 else 0.2
-			axes[1].plot(res_rs.py1_y0_s, res_rs.accuracy_mean, linewidth=1, alpha=alpha, color='black')
-			axes[1].plot(res_rs.py1_y0_s, res_rs.accuracy_mean, 'o', alpha=alpha, color='black')
-		axes[1].set_xlabel(r'P(Water bird $|$ water background)')
+			axes[1].plot(model_to_spec, res_rs.py1_y0_s, res_rs.accuracy_mean, linewidth=1, alpha=alpha, color='black')
+			axes[1].plot(model_to_spec, res_rs.py1_y0_s, res_rs.accuracy_mean, 'o', alpha=alpha, color='black')
+		axes[1].set_xlabel(r'P(Water bird $|$ water background) at test time')
 		axes[1].title.set_text(r'iSlabs')
 
 
 		plt.tight_layout()
 
-		savename = os.path.join(results_dir, f'waterbirds_{FLAGS.exp_name}_plot_per_run.pdf')
+		savename = os.path.join(results_dir, f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_plot_per_run.pdf')
+
 		cropped_savename = os.path.join(results_dir,
-			f'waterbirds_{FLAGS.exp_name}_plot_per_run_cropped.pdf')
+			f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_plot_per_run_cropped.pdf')
 
 		plt.savefig(savename)
 		plt.clf()

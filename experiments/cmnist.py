@@ -16,25 +16,35 @@
 import functools
 import itertools
 import subprocess
+import socket
 import multiprocessing
 import os
 import pickle
 
 import argparse
-import numpy as np  # noqa: F401
+import numpy as np
 import tqdm
 
-from shared.utils import config_hasher, tried_config
+import shared.utils as utils
+import shared.cross_validation as cv
+
 from cmnist import configurator
 
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'cmnist'))
-NUM_GPUS = 4
-PROC_PER_GPU = 3
+FINAL_MODELS_DIR = f'{BASE_DIR}/final_models'
+
+HOST = socket.gethostname()
+
+AVAILABLE_GPUS = [i for i in range(8)] if HOST == 'milo' else [0, 1, 2, 3]
+NUM_GPUS = len(AVAILABLE_GPUS)
+PROC_PER_GPU = 1 if HOST == 'milo' else 1
+NUM_DELETE_WORKERS = 20
+PVAL= 0.01
 
 QUEUE = multiprocessing.Queue()
-for gpu_ids in range(NUM_GPUS):
+for gpu_ids in AVAILABLE_GPUS:
 	for _ in range(PROC_PER_GPU):
 		QUEUE.put(str(gpu_ids))
 
@@ -46,22 +56,45 @@ def runner(config, overwrite):
 	Returns:
 		Nothing
 	"""
+	# check system status
+	output = os.statvfs('/data/ddmg/slabs/')
+	avail = output.f_frsize * output.f_bavail
+	total = output.f_frsize * output.f_blocks
+	prop_avail = avail / total
+	if prop_avail < 0.1:
+		raise ValueError("Running low on NFS space")
 	try:
-		hash_string = config_hasher(config)
+		hash_string = utils.config_hasher(config)
 		hash_dir = os.path.join(BASE_DIR, 'tuning', hash_string)
-		if (not overwrite) and tried_config(config, BASE_DIR):
+		if (not overwrite) and utils.tried_config(config, BASE_DIR):
 			return None
 		if not os.path.exists(hash_dir):
 			os.system(f'mkdir -p {hash_dir}')
+
+		if (('warmstart_dir' in config.keys()) and (config['warmstart_dir'] == 'find')):
+			try: 
+				warmstart_config = copy.deepcopy(config)
+				warmstart_config['weighted_mmd'] = 'False'
+				warmstart_config['balanced_weights'] = 'False'
+				del warmstart_config['warmstart_dir']
+				warmstart_hash_string =  utils.config_hasher(warmstart_config)
+				warmstart_hash_dir = os.path.join(BASE_DIR, 'tuning', warmstart_hash_string, 'saved_model')
+				subdirs = [x for x in Path(warmstart_hash_dir).iterdir() if x.is_dir() and 'temp' not in str(x)]
+				warmstart_hash_dir = str(sorted(subdirs)[-1])
+				config['warmstart_dir'] = f'{warmstart_hash_dir}/variables/variables'
+			except: 
+				raise NotImplementedError("not yet")
+
 		config['exp_dir'] = hash_dir
 		config['cleanup'] = True
-		# chosen_gpu = get_gpu_assignment()
+
 		chosen_gpu = QUEUE.get()
 		config['gpuid'] = chosen_gpu
 		flags = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
-		subprocess.call('python -m cmnist.main %s > /dev/null 2>&1' % flags,
+		subprocess.call(f'python -m waterbirds.main {flags} > {hash_dir}/log.log 2>&1',
 			shell=True)
-		# subprocess.call('python -m cmnist.main %s' % flags, shell=True)
+		# subprocess.call('python -m waterbirds.main %s' % flags, shell=True)
+		# print(f'python -m waterbirds.main %s > /dev/null 2>&1' % flags)
 		config.pop('exp_dir')
 		config.pop('cleanup')
 		pickle.dump(config, open(os.path.join(hash_dir, 'config.pkl'), 'wb'))
@@ -73,7 +106,11 @@ def main(experiment_name,
 					model_to_tune,
 					aug_prop,
 					num_trials,
-					overwrite):
+					first_step,
+					overwrite,
+					train_models,
+					pick_best,
+					clean_directories):
 	"""Main function to tune/train the model.
 	Args:
 		experiment_name: str, name of the experiemnt to run
@@ -88,45 +125,128 @@ def main(experiment_name,
 		Returns:
 			nothing
 	"""
-	all_config = configurator.get_sweep(experiment_name, model_to_tune, aug_prop)
+	all_config = configurator.get_sweep(experiment_name, model_to_tune, oracle_prop)
 	print(f'All configs are {len(all_config)}')
-	if not overwrite:
-		configs_to_consider = [not tried_config(config, base_dir=BASE_DIR) for config
-												in all_config]
-		all_config = list(itertools.compress(all_config, configs_to_consider))
 
-	if num_trials < len(all_config):
-		configs_to_run = np.random.choice(len(all_config), size=num_trials,
-			replace=False).tolist()
-		configs_to_run = [config_id in configs_to_run for config_id in
-			range(len(all_config))]
-		all_config = list(itertools.compress(all_config, configs_to_run))
 
-	pool = multiprocessing.Pool(NUM_GPUS * PROC_PER_GPU)
-	runner_wrapper = functools.partial(runner, overwrite=overwrite)
-	for _ in tqdm.tqdm(pool.imap_unordered(runner_wrapper, all_config),
-		total=len(all_config)):
-		pass
+	if train_models:
+		if not overwrite:
+			configs_to_consider = [
+				not utils.tried_config(config, base_dir=BASE_DIR) for config in all_config
+			]
+			all_config = list(itertools.compress(all_config, configs_to_consider))
 
+		if num_trials < len(all_config):
+			configs_to_run = np.random.choice(len(all_config), size=num_trials,
+				replace=False).tolist()
+			configs_to_run = [config_id in configs_to_run for config_id in
+				range(len(all_config))]
+			all_config = list(itertools.compress(all_config, configs_to_run))
+		# all_config = all_config[:1]
+		pool = multiprocessing.Pool(NUM_GPUS * PROC_PER_GPU)
+		runner_wrapper = functools.partial(runner, overwrite=overwrite)
+		for _ in tqdm.tqdm(pool.imap_unordered(runner_wrapper, all_config),
+			total=len(all_config)):
+			pass
+
+	elif pick_best:
+		if not os.path.exists(FINAL_MODELS_DIR):
+			os.mkdir(FINAL_MODELS_DIR)
+
+		classic_final_model, _ = \
+			cv.get_optimal_model_results(mode='classic', configs=all_config,
+				base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
+				'embedding_dim'], weighted_xv='False')
+
+		classic_final_model['model'] = f'{model_to_tune}_classic'
+		classic_final_model.to_csv(
+			f'{FINAL_MODELS_DIR}/{model_to_tune}_classic_{experiment_name}.csv',
+			index=False)
+
+		if 'slabs' in model_to_tune:
+			print("===== 2 step xv======")
+			twostep_final_model, _ = \
+				cv.get_optimal_model_results(mode='two_step', configs=all_config,
+					base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
+					'embedding_dim'], weighted_xv='False', pval=PVAL)
+
+			twostep_final_model['model'] = f'{model_to_tune}_ts{PVAL}'
+			twostep_final_model.to_csv(
+				f'{FINAL_MODELS_DIR}/{model_to_tune}_ts{PVAL}_{experiment_name}.csv',
+				index=False)
+
+		if model_to_tune == 'unweighted_slabs':
+			print("===== 2 step xv, weighted, bal======")
+			weighted_twostep_final_model, _ = \
+			cv.get_optimal_model_results(mode='two_step', configs=all_config,
+				base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
+				'embedding_dim'], weighted_xv='weighted_bal', pval=PVAL)
+
+			weighted_twostep_final_model['model'] = f'{model_to_tune}_wbts{PVAL}'
+			weighted_twostep_final_model.to_csv(
+				f'{FINAL_MODELS_DIR}/{model_to_tune}_wbts{PVAL}_{experiment_name}.csv',
+				index=False)					
+
+			print("===== 3 step xv, weighted, bal======")
+			weighted_threestep_final_model, _ = \
+			cv.get_optimal_model_results(mode='three_step', configs=all_config,
+				base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
+				'embedding_dim'], weighted_xv='weighted_bal', pval=PVAL)
+
+			weighted_threestep_final_model['model'] = f'{model_to_tune}_wbths{PVAL}'
+			weighted_threestep_final_model.to_csv(
+				f'{FINAL_MODELS_DIR}/{model_to_tune}_wbths{PVAL}_{experiment_name}.csv',
+				index=False)					
+
+			print("===== 3 step xv======")
+			threestep_final_model, _ = \
+			cv.get_optimal_model_results(mode='three_step', configs=all_config,
+				base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
+				'embedding_dim'], weighted_xv='False', pval=PVAL)
+
+			threestep_final_model['model'] = f'{model_to_tune}_ths{PVAL}'
+			threestep_final_model.to_csv(
+				f'{FINAL_MODELS_DIR}/{model_to_tune}_ths{PVAL}_{experiment_name}.csv',
+				index=False)
+
+
+	elif clean_directories:
+		print("Are you sure you want to delete? Uncomment the next line then!")
+		assert 1 == 2
+		for _ in all_config:
+			delete_config_file_wrapper = functools.partial(
+				utils.delete_config_file, base_dir=BASE_DIR)
+
+		pool = multiprocessing.Pool(NUM_DELETE_WORKERS)
+		for _ in tqdm.tqdm(pool.imap_unordered(delete_config_file_wrapper,
+			all_config), total=len(all_config)):
+			pass
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 
 	parser.add_argument('--experiment_name', '-experiment_name',
-		default='correlation',
-		choices=['correlation', 'overlap'],
+		default='5050',
+		choices=['5050'],
 		help="Which experiment to run",
 		type=str)
 
 	parser.add_argument('--model_to_tune', '-model_to_tune',
 		default='slabs',
-		choices=['slabs', 'opslabs', 'weighted_opslabs', 'simple_baseline',
-		'oracle_aug'],
+		choices=[
+			'slabs_weighted', 'slabs_weighted_bal', 
+			'slabs_warmstart_weighted', 'slabs_warmstart_weighted_bal', 
+			'slabs_logit',
+			'unweighted_slabs', 'unweighted_slabs_logit',
+			'simple_baseline','weighted_baseline',
+			'oracle_aug', 'weighted_oracle_aug',
+			'random_aug', 'weighted_random_aug'
+			],
 		help="Which model to tune",
 		type=str)
 
-	parser.add_argument('--aug_prop', '-aug_prop',
-		default=-1.1,
+	parser.add_argument('--oracle_prop', '-oracle_prop',
+		default=-1.0,
 		help=("Proportion of training data to use for augentation."
 					"Only relevant if model_to_tune is [something]_aug"),
 		type=float)
@@ -137,9 +257,25 @@ if __name__ == "__main__":
 		type=int)
 
 	parser.add_argument('--overwrite', '-overwrite',
+		action='store_true',
 		default=False,
-		help="If this config has been tested before, rerun?",
-		type=bool)
+		help="If this config has been tested before, rerun?")
+
+	parser.add_argument('--train_models', '-train_models',
+		action='store_true',
+		default=False,
+		help="Train models for all configs?")
+
+	parser.add_argument('--pick_best', '-pick_best',
+		action='store_true',
+		default=False,
+		help="Pick the optimal model based on existing results?")
+
+	parser.add_argument('--clean_directories', '-clean_directories',
+		action='store_true',
+		default=False,
+		help="NUCLEAR: delete all model results?")
 
 	args = vars(parser.parse_args())
 	main(**args)
+
