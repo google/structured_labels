@@ -1,16 +1,5 @@
-# Copyright 2020 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Copyright 2020 the Causally Motivated Shortcut Removal
+# Authors. All rights reserved.
 
 """Main training protocol used for structured label prediction models."""
 import os
@@ -93,7 +82,7 @@ def model_fn(features, labels, mode, params):
 	if mode == tf.estimator.ModeKeys.TRAIN:
 		opt = tf.keras.optimizers.Adam()
 		global_step = tf.compat.v1.train.get_global_step()
-		
+
 		ckpt = tf.train.Checkpoint(
 			step=global_step, optimizer=opt, net=net)
 
@@ -181,7 +170,7 @@ def train(exp_dir,
 		est = tf.estimator.Estimator(
 			model_fn, model_dir=scratch_exp_dir, params=params, config=run_config,
 			warm_start_from=warm_start)
-	
+
 	if training_steps == 0:
 		training_steps = int(params['num_epochs'] * steps_per_epoch)
 
