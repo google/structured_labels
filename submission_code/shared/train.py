@@ -164,11 +164,11 @@ def train(exp_dir,
 
 	if warmstart_dir == 'None':
 		est = tf.estimator.Estimator(
-			model_fn, model_dir=scratch_exp_dir, params=params, config=run_config)
+			model_fn, model_dir=exp_dir, params=params, config=run_config)
 	else:
 		warm_start = tf.estimator.WarmStartSettings(warmstart_dir)
 		est = tf.estimator.Estimator(
-			model_fn, model_dir=scratch_exp_dir, params=params, config=run_config,
+			model_fn, model_dir=exp_dir, params=params, config=run_config,
 			warm_start_from=warm_start)
 
 	if training_steps == 0:
@@ -204,4 +204,4 @@ def train(exp_dir,
 	est.export_saved_model(f'{exp_dir}/saved_model', serving_input_fn)
 
 	if cleanup == 'True':
-		train_utils.cleanup_directory(scratch_exp_dir)
+		train_utils.cleanup_directory(exp_dir)

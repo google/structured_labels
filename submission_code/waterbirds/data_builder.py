@@ -7,17 +7,10 @@ Code based on https://github.com/kohpangwei/group_DRO/blob/master/
 	dataset_scripts/generate_waterbirds.py
 """
 import os
-import shutil
 import functools
-from copy import deepcopy
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-
-MAIN_DIR = '/my_main_dir'
-DATA_DIR = f'{MAIN_DIR}/waterbirds'
-IMAGE_DIR = f'{MAIN_DIR}/CUB_200_2011'
-SEGMENTATION_DIR = f'{MAIN_DIR}/segmentations/'
 
 
 NUM_PLACE_IMAGES_CLEAN = 8000
@@ -180,11 +173,10 @@ def create_images_labels(bird_data_frame, water_images, land_images, py1_y0=1,
 	if clean_back == 'True':
 		water_img_dir = WATER_IMG_DIR_CLEAN
 		land_img_dir = LAND_IMG_DIR_CLEAN
-		num_place_images = NUM_PLACE_IMAGES_CLEAN
 	else:
 		water_img_dir = WATER_IMG_DIR
 		land_img_dir = LAND_IMG_DIR
-		num_place_images = NUM_PLACE_IMAGES
+
 
 	# -- add noise to bird type
 	flip0 = rng.choice(bird_data_frame.shape[0],
@@ -222,11 +214,17 @@ def create_images_labels(bird_data_frame, water_images, land_images, py1_y0=1,
 	return bird_data_frame, water_image_ids, land_image_ids
 
 
-def save_created_data(data_frame, experiment_directory, filename):
+def save_created_data(data_frame, experiment_directory, main_directory,
+	filename):
+
+	data_dir = f'{main_directory}/waterbirds'
+	image_dir = f'{main_directory}/CUB_200_2011'
+	segmentation_dir = f'{main_directory}/segmentations/'
+
 	data_frame['img_filename'] = data_frame['img_filename'].str[:-3]
-	txt_df = f'{IMAGE_DIR}/images/' + data_frame.img_filename + 'jpg' + \
-		',' + SEGMENTATION_DIR + data_frame.img_filename + 'png' + \
-		',' + f'{DATA_DIR}/places_data/' + data_frame.background_filename + \
+	txt_df = f'{image_dir}/images/' + data_frame.img_filename + 'jpg' + \
+		',' + segmentation_dir + data_frame.img_filename + 'png' + \
+		',' + f'{data_dir}/places_data/' + data_frame.background_filename + \
 		',' + data_frame.y0.astype(str) + \
 		',' + data_frame.y1.astype(str) + \
 		',' + data_frame.balanced_weights_pos.astype(str) + \
@@ -264,13 +262,12 @@ def load_created_data(experiment_directory, py1_y0_s):
 		]
 		test_data_dict[py1_y0_s_val] = test_data
 
-
 	return train_data, validation_data, test_data_dict
 
 
-
-def create_save_waterbird_lists(experiment_directory, p_tr=.7, py1_y0=1,
-	py1_y0_s=.5, pflip0=.1, pflip1=.1, clean_back='False', random_seed=None):
+def create_save_waterbird_lists(experiment_directory, main_directory, p_tr=.7,
+	py1_y0=1, py1_y0_s=.5, pflip0=.1, pflip1=.1, clean_back='False',
+	random_seed=None):
 
 	if random_seed is None:
 		rng = np.random.RandomState(0)
@@ -284,8 +281,8 @@ def create_save_waterbird_lists(experiment_directory, p_tr=.7, py1_y0=1,
 
 	# --- read in all bird image filenames
 
-	df = pd.read_csv(f'{IMAGE_DIR}/images.txt', sep=" ", header=None,
-		names=['img_id', 'img_filename'], index_col='img_id')
+	df = pd.read_csv(f'{main_directory}/CUB_200_2011/images.txt', sep=" ",
+		header=None, names=['img_id', 'img_filename'], index_col='img_id')
 	df = df.sample(frac=1, random_state=random_seed)
 	df.reset_index(inplace=True, drop=True)
 
@@ -321,14 +318,14 @@ def create_save_waterbird_lists(experiment_directory, p_tr=.7, py1_y0=1,
 	train_df = train_valid_df[(train_valid_df.train == 1)].reset_index(drop=True)
 	train_df = get_weights(train_df)
 	save_created_data(train_df, experiment_directory=experiment_directory,
-		filename='train')
+		main_directory=main_directory, filename='train')
 
 	# --- save validation data
 	valid_df = train_valid_df[(train_valid_df.train == 0)].reset_index(drop=True)
 	valid_df = get_weights(valid_df)
 
 	save_created_data(valid_df, experiment_directory=experiment_directory,
-		filename='validation')
+		main_directory=main_directory, filename='validation')
 
 	# --- create + save test data
 	test_df = df[(df.train_valid_ids == 0)].reset_index(drop=True)
@@ -348,17 +345,18 @@ def create_save_waterbird_lists(experiment_directory, p_tr=.7, py1_y0=1,
 		curr_test_df = get_weights(curr_test_df)
 
 		save_created_data(curr_test_df, experiment_directory=experiment_directory,
-			filename=f'test_shift{py1_y0_s_val}')
+			main_directory=main_directory, filename=f'test_shift{py1_y0_s_val}')
 
 
-def build_input_fns(p_tr=.7, py1_y0=1, py1_y0_s=.5, pflip0=.1,
+def build_input_fns(main_directory, p_tr=.7, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 	pflip1=.1, Kfolds=0, clean_back='False', random_seed=None):
 
+	data_dir = f'{main_directory}/waterbirds'
 	if clean_back == 'True':
-		experiment_directory = (f'{DATA_DIR}/experiment_data/'
+		experiment_directory = (f'{data_dir}/experiment_data/'
 			f'cleanback_rs{random_seed}_py1_y0{py1_y0}_pfilp{pflip0}')
 	else:
-		experiment_directory = (f'{DATA_DIR}/experiment_data/'
+		experiment_directory = (f'{data_dir}/experiment_data/'
 			f'rs{random_seed}_py1_y0{py1_y0}_pfilp{pflip0}')
 
 
@@ -369,6 +367,7 @@ def build_input_fns(p_tr=.7, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 
 		create_save_waterbird_lists(
 			experiment_directory=experiment_directory,
+			main_directory=main_directory,
 			p_tr=p_tr,
 			py1_y0=py1_y0,
 			py1_y0_s=py1_y0_s,
@@ -404,7 +403,8 @@ def build_input_fns(p_tr=.7, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 		valid_dataset = tf.data.Dataset.from_tensor_slices(valid_data)
 		valid_dataset = valid_dataset.map(map_to_image_label_given_pixel,
 			num_parallel_calls=1)
-		valid_dataset = valid_dataset.batch(batch_size, drop_remainder=True).repeat(1)
+		valid_dataset = valid_dataset.batch(batch_size,
+			drop_remainder=True).repeat(1)
 		return valid_dataset
 
 	# -- Create kfold splits
@@ -438,7 +438,7 @@ def build_input_fns(p_tr=.7, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 		Kfold_input_fn_creater = None
 
 	# Build an iterator over the heldout set (shifted distribution).
-	def eval_input_fn_creater(py, params, asym=False):
+	def eval_input_fn_creater(py, params):
 		map_to_image_label_given_pixel = functools.partial(map_to_image_label,
 			pixel=params['pixel'])
 

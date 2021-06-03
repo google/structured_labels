@@ -10,38 +10,45 @@ from waterbirds import data_builder
 from shared import train
 from shared.utils import restrict_GPU_tf
 
-MAIN_DIR = '/my_main_dir'
+
 FLAGS = flags.FLAGS
 flags.DEFINE_float('p_tr', .8, 'proportion of data used for training.')
 flags.DEFINE_float('py1_y0', .95, '(unshifted) probability of y1 =1 | y0 = 1.')
 flags.DEFINE_list('py1_y0_shift_list',
 	[.1, .2, .3, .4, .5, .6, .7, .8, .9, .95, .1],
 	'(shifted) probability of y1 =1 | y0 = 1.')
-flags.DEFINE_float('pflip0', 0.01, 'proportion of y0 randomly flipped (noise).')
-flags.DEFINE_float('pflip1', 0.01, 'proportion of y1 randomly flipped (noise).')
-flags.DEFINE_integer('pixel', 64, 'number of pixels in the image (i.e., res).')
-flags.DEFINE_integer('Kfolds', 0, 'number of folds (i.e., batches) in validation set.'
+flags.DEFINE_float('pflip0', 0.01,
+	'proportion of y0 randomly flipped (noise).')
+flags.DEFINE_float('pflip1', 0.01,
+	'proportion of y1 randomly flipped (noise).')
+flags.DEFINE_integer('pixel', 64,
+	'number of pixels in the image (i.e., res).')
+flags.DEFINE_integer('Kfolds', 0,
+	'number of folds (i.e., batches) in validation set.'
 	'If 0, it will be determined by batch_size')
 
-flags.DEFINE_string('exp_dir', f'{MAIN_DIR}/my_model',
-										'Directory to save trained model in.')
+flags.DEFINE_string('main_dir', 'my_dir',
+	'Directory where the birds and places data is stored.')
+
+flags.DEFINE_string('exp_dir', 'my_model',
+	'Directory to save trained model in.')
 flags.DEFINE_string('architecture', 'pretrained_resnet',
-										'Architecture to use for training.')
+	'Architecture to use for training.')
 flags.DEFINE_integer('batch_size', 32, 'batch size.')
 flags.DEFINE_integer('num_epochs', 200, 'Number of epochs.')
 flags.DEFINE_integer('training_steps', 0, 'number of estimator training steps.'
-										' If non-zero over rides the automatic value'
-										' determined by num_epochs and batch_size')
+	' If non-zero over rides the automatic value'
+	' determined by num_epochs and batch_size')
 
 flags.DEFINE_float('alpha', 1.0, 'Value for the cross prediction penelty')
 flags.DEFINE_float('sigma', 1.0, 'Value for the MMD kernel bandwidth.')
 flags.DEFINE_string('weighted_mmd', 'False',
-											'use weighting when computing the mmd?.')
+	'use weighting when computing the mmd?.')
 flags.DEFINE_string('warmstart_dir', 'None',
-											'Directory of saved model to warm start from.')
+	'Directory of saved model to warm start from.')
 flags.DEFINE_float('dropout_rate', 0.0, 'Value for drop out rate')
 flags.DEFINE_float('l2_penalty', 0.0,
-									'L2 regularization penalty for final layer')
+	'L2 regularization penalty for final layer')
 flags.DEFINE_string('random_augmentation', 'False',
 		'Augment data at training time using random transformations.')
 
@@ -69,6 +76,7 @@ def main(argv):
 
 	def dataset_builder():
 		return data_builder.build_input_fns(
+			main_directory=FLAGS.main_dir,
 			p_tr=FLAGS.p_tr,
 			py1_y0=FLAGS.py1_y0,
 			py1_y0_s=py1_y0_shift_list,
