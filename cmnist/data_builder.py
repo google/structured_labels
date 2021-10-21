@@ -21,7 +21,7 @@ import os, shutil
 import functools
 import multiprocessing
 
-from copy import deepcopy 
+from copy import deepcopy
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -32,16 +32,20 @@ DATA_DIR = '/data/ddmg/slabs/cmnist'
 NUM_WORKERS = 20
 
 def read_decode_jpg(file_path):
-	print(file_path)
 	img = tf.io.read_file(file_path)
 	img = tf.image.decode_jpeg(img, channels=3)
 	return img
+
+def read_decode_png(file_path):
+	img = tf.io.read_file(file_path)
+	img = tf.image.decode_png(img, channels=1)
+	return img
+
 
 def decode_number(label):
 	label = tf.expand_dims(label, 0)
 	label = tf.strings.to_number(label)
 	return label
-
 
 def map_to_image_label(x):
 
@@ -50,6 +54,7 @@ def map_to_image_label(x):
 	digit_image = x[0]
 	y0 = x[1]
 	y1 = x[2]
+
 	if weights_included:
 		unbalanced_weights_pos = x[3]
 		unbalanced_weights_neg = x[4]
@@ -61,6 +66,9 @@ def map_to_image_label(x):
 
 	# decode images
 	img = read_decode_jpg(digit_image)
+	# resize, rescale  image
+	img = tf.image.resize(img, (28, 28))
+	img = img / 255
 
 	# get the label vector
 	y0 = decode_number(y0)
@@ -94,37 +102,6 @@ def map_to_image_label(x):
 	}
 
 	return img, labels_and_weights
-
-
-def color_corrupt_img(index, images, labels, save_directory, npix=5):
-	"""Corrupts a single MNIST image."""
-	# we will corrupt channel 1 if y = 0 and channel 2 if y ==1
-	x = images[index]
-	y = labels[index, 1]
-	channel_to_corrupt = int(y) + 1
-
-	# add color channels
-	xc = tf.image.grayscale_to_rgb(tf.convert_to_tensor(x)).numpy()
-	bright_pixels = np.where(xc[:, :, channel_to_corrupt] > 127)
-
-	# pick npix to corrupt
-	if npix > len(bright_pixels[0]):
-		pick_pix = list(range(len(bright_pixels[0])))
-	else:
-		pick_pix = np.random.choice(len(bright_pixels[0]), size=npix, replace=False)
-	pr, pc = bright_pixels[0][pick_pix], bright_pixels[1][pick_pix]
-	xc[pr[:, None], pc, channel_to_corrupt] = 0
-	xc = tf.keras.preprocessing.image.array_to_img(xc, scale=False)
-	tf.keras.preprocessing.image.save_img( 
-		path=f'{save_directory}/image_{index}.jpg', 
-		x=xc, data_format='channels_last', scale=False)
-
-	data = pd.DataFrame({
-		'img_filename': f'{save_directory}/image_{index}.jpg', 
-		'y0': labels[index, 0], 'y1':y
-	}, index = [0])
-	return data
-
 
 def get_weights(data_frame):
 
@@ -171,76 +148,65 @@ def get_weights(data_frame):
 	return data_frame
 
 
-def create_images_labels(data_group='train', subset_ids=None, 
-	py1_y0=1, pflip0=.1, pflip1=.1, npix=5, rng=None, experiment_directory=''):
+def create_images_labels(group, digit_data_frame, py1_y0=1, pflip0=.1,
+	pflip1=.1, pixel=20, experiment_directory='', rng=None):
 	if rng is None:
 		rng = np.random.RandomState(0)
 
-	if data_group == 'test':
-		_, (x, y) = tf.keras.datasets.mnist.load_data()
-	else: 
-		(x, y), _ = tf.keras.datasets.mnist.load_data()	
+	# -- add noise to the main label
+	flip0 = rng.choice(digit_data_frame.shape[0],
+		size=int(pflip0 * digit_data_frame.shape[0]), replace=False).tolist()
+	digit_data_frame.y0.loc[flip0] = 1 - digit_data_frame.y0.loc[flip0]
 
+	# channel to corrupt is the true value for y1
+	digit_data_frame['channel_to_corrupt'] = rng.binomial(1,
+		digit_data_frame.y0 * py1_y0 + (1 - digit_data_frame.y0) * (1.0 - py1_y0))
+	digit_data_frame['y1'] = digit_data_frame['channel_to_corrupt'].copy()
 
-	print(f'==== length of full {data_group} x: {x.shape[0]}, y: {y.shape[0]}')
-	x = x[..., np.newaxis]
-	keep = (y == 3) | (y == 4)
-	x, y = x[keep].copy(), y[keep].copy()
+	# -- add noise
+	flip1 = rng.choice(digit_data_frame.shape[0],
+		size=int(pflip1 * digit_data_frame.shape[0]), replace=False).tolist()
+	digit_data_frame.y1.loc[flip1] = 1 - digit_data_frame.y1.loc[flip1]
 
-	print(f'==== length after dropping non 3/4 {data_group} x: {x.shape[0]}, y: {y.shape[0]}')
+	# -- channel 0 is boring.
+	digit_data_frame['channel_to_corrupt'] += 1
 
-	if subset_ids is not None: 
-		x = x[subset_ids]
-		y = y[subset_ids]
-	
-	print(f'==== length of subset {data_group} x: {x.shape[0]}, y: {y.shape[0]}')
+	if not os.path.exists(f'{experiment_directory}/{group}'):
+		os.mkdir(f'{experiment_directory}/{group}')
+	# --- create and save the corrupted image
+	for i in range(digit_data_frame.shape[0]):
+		digit_image = digit_data_frame.image_filename[i]
+		channel_to_corrupt = digit_data_frame.channel_to_corrupt[i]
+		img = read_decode_png(digit_image)
 
-	# -- get noisy main label 
-	y0_true = (y == 3) * 1
-	flip0 = rng.choice(x.shape[0], size=int(pflip0 * x.shape[0]), replace=False).tolist()
-	y0 = y0_true.copy()
-	y0[flip0] = 1 - y0[flip0]
+		# add color channels
+		xc = tf.image.grayscale_to_rgb(tf.convert_to_tensor(img)).numpy()
+		# bright_pixels = np.where(xc[:, :, channel_to_corrupt] > 127)
+		# # pick pixel to corrupt
+		# if pixel > len(bright_pixels[0]):
+		# 	pick_pix = list(range(len(bright_pixels[0])))
+		# else:
+		# 	pick_pix = np.random.choice(len(bright_pixels[0]), size=pixel, replace=False)
+		# pr, pc = bright_pixels[0][pick_pix], bright_pixels[1][pick_pix]
+		# xc[pr[:, None], pc, channel_to_corrupt] = 0
+		if channel_to_corrupt == 2:
+			xc[20:30, :10, channel_to_corrupt] = 255
+		if channel_to_corrupt == 1:
+			xc[:10, 20:30, channel_to_corrupt] = 255
+		# imgc = tf.keras.preprocessing.image.array_to_img(xc, scale=False)
+		tf.keras.preprocessing.image.save_img(
+			path=f"{experiment_directory}/{group}/image{i}.png",
+			x=xc, data_format='channels_last', scale=False)
 
-	print(f'Y0: true mean {np.mean(y0_true)}, noisy {np.mean(y0)}')
-
-	# -- get corruption type (noisy aux label)
-	y1_true = rng.binomial(1, y0_true * py1_y0 + (1 - y0_true) * (1.0 - py1_y0))
-	flip1 = rng.choice(x.shape[0],size=int(pflip1 * x.shape[0]), replace=False).tolist()
-	y1 = y1_true.copy()
-	y1[flip1] = 1 - y1[flip1]
-
-	print(f'Y1: true mean {np.mean(y1_true)}, noisy {np.mean(y1)}')
-
-	# --- loop through each image to corrupt 
-	labels = np.stack([y0, y1], axis=1)
-
-	save_directory = f'{experiment_directory}/{data_group}_images/'
-	if not os.path.exists(save_directory):
-			os.mkdir(save_directory)
-	print(f'Got npix {npix}')
-	color_corrupt_img_wrapper = functools.partial(color_corrupt_img, images=x, labels=labels,
-		save_directory=save_directory, npix=npix)	
-
-	data = []
-	pool = multiprocessing.Pool(NUM_WORKERS)
-	for row in tqdm.tqdm(pool.imap_unordered(color_corrupt_img_wrapper, range(x.shape[0])),
-			total=x.shape[0] ):
-			data.append(row)
-
-	data = pd.concat(data, axis=0, ignore_index=True)
-
-	print(f"===={data_group} xtab between the two labels=====")
-	print(pd.crosstab(data['y0'], data['y1'])/data.shape[0])
-
-	data = get_weights(data) 
-	print(f"===={data_group} values of balanced weights=====")
-	print(data['balanced_weights'].value_counts())
-
-	return data
+	digit_data_frame['image_filename'] = [
+		f"{experiment_directory}/{group}/image{i}.png" for i in range(digit_data_frame.shape[0])
+	]
+	digit_data_frame.drop('channel_to_corrupt', axis=1, inplace = True)
+	return digit_data_frame
 
 
 def save_created_data(data_frame, experiment_directory, filename):
-	txt_df = data_frame.img_filename + \
+	txt_df = data_frame.image_filename + \
 		',' + data_frame.y0.astype(str) + \
 		',' + data_frame.y1.astype(str) + \
 		',' + data_frame.weights_pos.astype(str) + \
@@ -268,7 +234,7 @@ def load_created_data(experiment_directory, py1_y0_s):
 		tuple(validation_data[i][0].split(',')) for i in range(len(validation_data))
 	]
 
-	if py1_y0_s is None: 
+	if py1_y0_s is None:
 		return train_data, validation_data, None
 	test_data_dict = {}
 	for py1_y0_s_val in py1_y0_s:
@@ -283,72 +249,82 @@ def load_created_data(experiment_directory, py1_y0_s):
 	return train_data, validation_data, test_data_dict
 
 
-def create_save_mnist_lists(experiment_directory, py0=0.5, p_tr=.7, py1_y0=1,
-	py1_y0_s=.5, pflip0=.1, pflip1=.1, npix=5, random_seed=None):
+def create_save_cmnist_lists(experiment_directory, py0=0.5, p_tr=.7, py1_y0=1,
+	py1_y0_s=.5, pflip0=.1, pflip1=.1, pixel=20, random_seed=None):
 
 	if py0 != 0.5:
-		raise NotImplementedError("Only accepting values of 0.8 and 0.5 for now")
+		raise NotImplementedError("Only accepting values of 0.5 for now")
 
 	if random_seed is None:
 		rng = np.random.RandomState(0)
 	else:
 		rng = np.random.RandomState(random_seed)
 
+	# this is created in /data/ddmg/slabs/creates_corrupt_mnist.ipynb
+	df = pd.read_csv(f'{DATA_DIR}/data/data_table.csv')
+	df = df.sample(frac=1, random_state=random_seed)
+	df.reset_index(inplace=True, drop=True)
+
+	# --- create train+validation vs test split
+	train_val_ids = rng.choice(df.shape[0],
+		size=int(p_tr * df.shape[0]), replace=False).tolist()
+	df['train_valid_ids'] = 0
+	df.train_valid_ids.loc[train_val_ids] = 1
+
+	# --- get the train and validation data
+	train_valid_df = df[(df.train_valid_ids == 1)].reset_index(drop=True)
+
+	train_valid_df = create_images_labels(
+		group='train', digit_data_frame=train_valid_df, py1_y0=py1_y0, pflip0=pflip0,
+		pflip1=pflip1, pixel=pixel, experiment_directory=experiment_directory,
+		rng=rng)
 
 	# --- create train validation split
-	# TODO: dont hard code data size
-	train_valid_n = 11973
-	
-	train_ids = rng.choice(train_valid_n, size=int(p_tr * train_valid_n), replace=False).tolist()
+	# TODO don't hard code p_tr
+	train_ids = rng.choice(train_valid_df.shape[0],
+		size=int(0.75 * train_valid_df.shape[0]), replace=False).tolist()
+	train_valid_df['train'] = 0
+	train_valid_df.train.loc[train_ids] = 1
 
-	print(f'==== length of training data {len(train_ids)}========')
-	train_df = create_images_labels(data_group='train', subset_ids=train_ids, 
-		py1_y0=py1_y0, pflip0=pflip0, pflip1=pflip1, npix=npix, 
-		rng=rng, experiment_directory=experiment_directory)
-
+	# --- save training data
+	train_df = train_valid_df[(train_valid_df.train == 1)].reset_index(drop=True)
+	train_df = get_weights(train_df)
 	save_created_data(train_df, experiment_directory=experiment_directory,
 		filename='train')
 
 	# --- save validation data
-	validation_ids = list(set(range(train_valid_n)) - set(train_ids))
-	print(f'==== length of training data {len(validation_ids)}========')
-	validation_df = create_images_labels(data_group='validation', subset_ids=validation_ids, 
-		py1_y0=py1_y0, pflip0=pflip0, pflip1=pflip1, npix=npix, 
-		rng=rng, experiment_directory=experiment_directory)
-
-	save_created_data(validation_df, experiment_directory=experiment_directory,
+	valid_df = train_valid_df[(train_valid_df.train == 0)].reset_index(drop=True)
+	valid_df = get_weights(valid_df)
+	save_created_data(valid_df, experiment_directory=experiment_directory,
 		filename='validation')
 
 	# --- create + save test data
+	test_df = df[(df.train_valid_ids == 0)].reset_index(drop=True)
 
 	for py1_y0_s_val in py1_y0_s:
-		curr_test_df = create_images_labels(data_group=f'test{py1_y0_s_val}',
-			subset_ids=None, py1_y0=py1_y0_s_val, pflip0=pflip0, pflip1=pflip1, npix=npix, 
-			rng=rng, experiment_directory=experiment_directory)
+		curr_test_df = test_df.copy()
+		curr_test_df = create_images_labels(
+			group='test', digit_data_frame=curr_test_df, py1_y0=py1_y0_s_val,
+			pflip0=pflip0, pflip1=pflip1, pixel=pixel,
+			experiment_directory=experiment_directory, rng=rng)
+
+		curr_test_df = get_weights(curr_test_df)
 
 		save_created_data(curr_test_df, experiment_directory=experiment_directory,
 			filename=f'test_shift{py1_y0_s_val}')
 
 
-def get_or_create_train_subsample(experiment_directory, n):
-	if not os.path.exists(f'{experiment_directory}/train_{n}_sample.txt'):
-		train_data, _, _ = load_created_data(
-		experiment_directory=experiment_directory, py1_y0_s=None)
-
-
-def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
-	pflip1=.1, npix=5, oracle_prop=0.0, Kfolds=0, random_seed=None, n=1e5):
-
+def build_input_fns(p_tr=.7, py0=0.9, py1_y0=1, py1_y0_s=.5, pflip0=.1,
+	pflip1=.1, pixel=20, oracle_prop=0.0, Kfolds=0, random_seed=None):
 
 	experiment_directory = (f'{DATA_DIR}/experiment_data/'
-		f'rs{random_seed}_py0{py0}_py1_y0{py1_y0}_npix{npix}')
-
+		f'rs{random_seed}_py0{py0}_py1_y0{py1_y0}')
 	# --- generate splits if they dont exist
 	if not os.path.exists(f'{experiment_directory}/train.txt'):
 		if not os.path.exists(experiment_directory):
 			os.mkdir(experiment_directory)
 
-		create_save_mnist_lists(
+		create_save_cmnist_lists(
 			experiment_directory=experiment_directory,
 			py0=py0,
 			p_tr=p_tr,
@@ -356,13 +332,12 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 			py1_y0_s=py1_y0_s,
 			pflip0=pflip0,
 			pflip1=pflip1,
-			npix=npix, 
+			pixel=pixel,
 			random_seed=random_seed)
 
-	
 	if oracle_prop > 0.0:
 		raise NotImplementedError("not yet")
-		
+
 	# --load splits
 	train_data, valid_data, shifted_data_dict = load_created_data(
 		experiment_directory=experiment_directory, py1_y0_s=py1_y0_s)
@@ -377,8 +352,8 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 
 		dataset = tf.data.Dataset.from_tensor_slices(train_data)
 		dataset = dataset.map(map_to_image_label, num_parallel_calls=1)
-		# dataset = dataset.shuffle(int(1e5)).batch(batch_size).repeat(num_epochs)
-		dataset = dataset.batch(batch_size).repeat(num_epochs)
+		dataset = dataset.shuffle(int(1e5)).batch(batch_size).repeat(num_epochs)
+		# dataset = dataset.batch(batch_size).repeat(num_epochs)
 		return dataset
 
 	# Build an iterator over validation batches
@@ -386,7 +361,8 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 	def valid_input_fn(params):
 		batch_size = params['batch_size']
 		valid_dataset = tf.data.Dataset.from_tensor_slices(valid_data)
-		valid_dataset = valid_dataset.map(map_to_image_label, num_parallel_calls=1)
+		valid_dataset = valid_dataset.map(map_to_image_label,
+			num_parallel_calls=1)
 		valid_dataset = valid_dataset.batch(batch_size, drop_remainder=True).repeat(1)
 		return valid_dataset
 
@@ -395,16 +371,19 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 		effective_validation_size = int(int(len(valid_data) / Kfolds) * Kfolds)
 		batch_size = int(effective_validation_size / Kfolds)
 
-		valid_splits = np.random.choice(len(valid_data), size=effective_validation_size,
-			replace=False).tolist()
+		valid_splits = np.random.choice(len(valid_data),
+			size=effective_validation_size, replace=False).tolist()
 
 		valid_splits = [
-			valid_splits[i:i + batch_size] for i in range(0, effective_validation_size, batch_size)
+			valid_splits[i:i + batch_size] for i in range(0, effective_validation_size,
+				batch_size)
 		]
 
 		def Kfold_input_fn_creater(foldid):
 			fold_examples = valid_splits[foldid]
-			valid_fold_data = [valid_data[i] for i in range(len(valid_data)) if i in fold_examples]
+			valid_fold_data = [
+				valid_data[i] for i in range(len(valid_data)) if i in fold_examples
+			]
 
 			def Kfold_input_fn(params):
 				valid_dataset = tf.data.Dataset.from_tensor_slices(valid_fold_data)
@@ -415,9 +394,9 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 	else:
 		Kfold_input_fn_creater = None
 
-
 	# Build an iterator over the heldout set (shifted distribution).
-	def eval_input_fn_creater(py, params):
+	def eval_input_fn_creater(py, params, asym=False):
+		del asym
 		shifted_test_data = shifted_data_dict[py]
 		batch_size = params['batch_size']
 
