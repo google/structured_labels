@@ -24,18 +24,18 @@ DATA_DIR = '/data/ddmg/slabs/chexpert'
 MAIN_DIR = '/data/ddmg/slabs'
 
 FEATURE_DESCRIPTION = {
-    'image_path': tf.io.FixedLenFeature([], tf.string, default_value=''),
-    'y0': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-    'y1': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-    
-    'unbalanced_weights_pos': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-    'unbalanced_weights_neg': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-    'unbalanced_weights_both': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-    
-    'balanced_weights_pos': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-    'balanced_weights_neg': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-    'balanced_weights_both': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-    
+	'image_path': tf.io.FixedLenFeature([], tf.string, default_value=''),
+	'y0': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
+	'y1': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
+
+	'unbalanced_weights_pos': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
+	'unbalanced_weights_neg': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
+	'unbalanced_weights_both': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
+
+	'balanced_weights_pos': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
+	'balanced_weights_neg': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
+	'balanced_weights_both': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
+
 }
 
 
@@ -53,34 +53,37 @@ def decode_number(label):
 
 def map_to_image_label_ser(example_proto, pixel):
 		# Parse the input `tf.train.Example` proto using the dictionary above.
-		parsed_dict =  tf.io.parse_single_example(example_proto, FEATURE_DESCRIPTION)
+		parsed_dict =  tf.io.parse_example(example_proto, FEATURE_DESCRIPTION)
 		# resize, rescale  image
+		print(parsed_dict['y0'])
+		assert 1==2
 		img = tf.io.read_file(parsed_dict['image_path'])
+
 		img = tf.image.decode_jpeg(img, channels=3)
-		
+
 		img = tf.image.resize(img, (pixel, pixel))
 		img = img / 255
-		
+
 		labels = tf.concat([
-			tf.reshape(parsed_dict['y0'], (1, 1)), 
-			tf.reshape(parsed_dict['y1'], (1, 1))], axis = 0)    
-		unbalanced_weights = tf.concat([ 
-			tf.reshape(parsed_dict['unbalanced_weights_pos'], (1, 1)), 
-			tf.reshape(parsed_dict['unbalanced_weights_neg'], (1, 1)), 
-			tf.reshape(parsed_dict['unbalanced_weights_both'], (1, 1))], 
+			tf.reshape(parsed_dict['y0'], (1, 1)),
+			tf.reshape(parsed_dict['y1'], (1, 1))], axis = 0)
+		unbalanced_weights = tf.concat([
+			tf.reshape(parsed_dict['unbalanced_weights_pos'], (1, 1)),
+			tf.reshape(parsed_dict['unbalanced_weights_neg'], (1, 1)),
+			tf.reshape(parsed_dict['unbalanced_weights_both'], (1, 1))],
 			axis = 0 )
-		
-		balanced_weights = tf.stack([ 
-			tf.reshape(parsed_dict['balanced_weights_pos'], (1, 1)), 
-			tf.reshape(parsed_dict['balanced_weights_neg'], (1, 1)), 
-			tf.reshape(parsed_dict['balanced_weights_both'], (1, 1))], 
+
+		balanced_weights = tf.stack([
+			tf.reshape(parsed_dict['balanced_weights_pos'], (1, 1)),
+			tf.reshape(parsed_dict['balanced_weights_neg'], (1, 1)),
+			tf.reshape(parsed_dict['balanced_weights_both'], (1, 1))],
 			axis = 0 )
 		labels_and_weights = {
 				'labels': labels,
 				'unbalanced_weights': unbalanced_weights,
 				'balanced_weights': balanced_weights,
 		}
-				
+
 		return img, labels_and_weights
 
 
@@ -187,25 +190,27 @@ def get_weights(data_frame):
 	return data_frame
 
 
-def get_skewed_data(cand_df, rng):
+def get_skewed_data_old(cand_df, rng):
 		if rng is None:
 				rng = np.random.RandomState(0)
-				
+
 		ids_11 = cand_df.uid[((cand_df.y1==1) &  (cand_df.y0==1))].tolist()
-		ids_10_size = int(0.1 * (len(ids_11)/0.9))
+		ids_10_size = int(0.2 * (len(ids_11)/0.8))
 		ids_10_candidates = cand_df.uid[((cand_df.y1==1) &  (cand_df.y0==0))].tolist()
 		ids_10 = rng.choice(ids_10_candidates, size = ids_10_size, replace =False).tolist()
 
 		ids_01 = cand_df.uid[((cand_df.y1==0) &  (cand_df.y0==1))].tolist()
-		ids_00_size = int(0.9 * (len(ids_01)/0.1))
+		ids_00_size = int(0.8 * (len(ids_01)/0.8))
 		ids_00_candidates = cand_df.uid[((cand_df.y1==0) &  (cand_df.y0==0))].tolist()
 		ids_00 = rng.choice(ids_00_candidates, size = ids_00_size, replace =False).tolist()
 
 		ids = ids_11 + ids_10 + ids_00 + ids_01
 		sk_df = cand_df[(cand_df.uid.isin(ids))]
+		print("--------------- cross tab ----------------")
+		print(pd.crosstab(sk_df.y0, sk_df.y1))
 		return sk_df
 
-def get_unskewed_data(cand_df, skewed_data, rng):
+def get_unskewed_data_old(cand_df, skewed_data, rng):
 		if rng is None:
 				rng = np.random.RandomState(0)
 
@@ -213,17 +218,75 @@ def get_unskewed_data(cand_df, skewed_data, rng):
 		n_y0 = skewed_data[(skewed_data.y0 == 0)].shape[0]
 
 		ids_0 = rng.choice(
-				cand_df.uid[(cand_df.y0==0)], 
-				size = n_y0, replace=False).tolist() 
+				cand_df.uid[(cand_df.y0==0)],
+				size = n_y0, replace=False).tolist()
 		ids_1 = rng.choice(
-				cand_df.uid[(cand_df.y0==1)], 
-				size = n_y1, replace=False).tolist() 
+				cand_df.uid[(cand_df.y0==1)],
+				size = n_y1, replace=False).tolist()
 
-		ids = ids_0 + ids_1 
+		ids = ids_0 + ids_1
 		usk_df = cand_df[(cand_df.uid.isin(ids))]
 		return usk_df
-		
 
+
+def sample_conditional_on_main(df, y_value, dominant_probability, rng):
+	dominant_group = df.index[((df.y0==y_value) & (df.y1 ==y_value))]
+	small_group = df.index[((df.y0==y_value) & (df.y1 ==(1 - y_value)))]
+	
+	small_probability = 1 - dominant_probability 
+	if len(dominant_group) < (dominant_probability/small_probability)*len(small_group):
+		dominant_id = deepcopy(dominant_group).tolist()
+		small_id = rng.choice(
+			small_group,size = int(
+				(small_probability/dominant_probability)* len(dominant_group)
+			),
+			replace = False).tolist()
+	elif len(small_group) < (small_probability/dominant_probability)*len(dominant_group):
+		small_id = deepcopy(small_group).tolist()
+		dominant_id = rng.choice(
+			dominant_group, size = int(
+				(dominant_probability/small_probability)*len(small_group)
+			), replace = False).tolist()
+	new_ids = small_id + dominant_id
+	df_new = df.iloc[new_ids]
+	return df_new
+
+def fix_marginal(df, y0_probability, rng):
+	y0_group = df.index[(df.y0 == 0)]
+	y1_group = df.index[(df.y0 == 1)]
+	
+	y1_probability = 1 - y0_probability 
+	if len(y0_group) < (y0_probability/y1_probability) * len(y1_group):
+		y0_ids = deepcopy(y0_group).tolist()
+		y1_ids = rng.choice(
+			y1_group, size = int((y1_probability/y0_probability) * len(y0_group)),
+			replace = False).tolist()
+	elif len(y1_group) < (y1_probability/y0_probability) * len(y0_group):
+		y1_ids = deepcopy(y1_group).tolist()
+		y0_ids = rng.choice(
+			y0_group, size = int( (y0_probability/y1_probability)*len(y1_group)), 
+			replace = False
+		).tolist()
+	dff = df.iloc[y1_ids + y0_ids]
+	dff.reset_index(inplace = True, drop=True)
+	reshuffled_ids = rng.choice(dff.index, size = len(dff.index), replace=False).tolist()
+	dff = dff.iloc[reshuffled_ids].reset_index(drop = True)
+	return dff
+
+def get_skewed_data(cand_df, py1d=0.9, py00=0.7, rng=None):
+	if rng is None:
+		rng = np.random.RandomState(0)
+	# --- Fix the conditional distributions 
+	cand_df1 = sample_conditional_on_main(cand_df, 1, py1d, rng)
+	cand_df0 = sample_conditional_on_main(cand_df, 0, py1d, rng)
+	
+	cand_df10 = cand_df1.append(cand_df0)
+	cand_df10.reset_index(inplace = True, drop=True)
+	
+	# --- Fix the marginal 
+	final_df = fix_marginal(cand_df10, py00, rng)
+	return final_df
+	
 
 def save_created_data(data_frame, experiment_directory, filename):
 	txt_df = f'{MAIN_DIR}/' + data_frame.Path + \
@@ -282,57 +345,57 @@ def create_save_chexpert_lists(experiment_directory, p_tr=.7, random_seed=None):
 	df = pd.read_csv(f'{DATA_DIR}/clean_data.csv')
 
 	# ---- split into train and test patients
-	tr_val_candidates = rng.choice(df.patient.unique(), 
+	tr_val_candidates = rng.choice(df.patient.unique(),
 		size = int(len(df.patient.unique())*p_tr), replace = False).tolist()
 	ts_candidates = list(set(df.patient.unique()) - set(tr_val_candidates))
 
-	# --- split training into training and validation 
+	# --- split training into training and validation
 	# TODO: don't hard code the validation percent
 	tr_candidates = rng.choice(tr_val_candidates,
 		size=int(0.75 * len(tr_val_candidates)), replace=False).tolist()
 	val_candidates = list(set(tr_val_candidates) - set(tr_candidates))
 
-	tr_candidates_df = df[(df.patient.isin(tr_candidates))]
-	val_candidates_df = df[(df.patient.isin(val_candidates))]
-	ts_candidates_df = df[(df.patient.isin(ts_candidates))]
+	tr_candidates_df = df[(df.patient.isin(tr_candidates))].reset_index(drop=True)
+	val_candidates_df = df[(df.patient.isin(val_candidates))].reset_index(drop=True)
+	ts_candidates_df = df[(df.patient.isin(ts_candidates))].reset_index(drop=True)
 
-	# --- checks 
+	# --- checks
 	assert len(ts_candidates) + len(tr_candidates) + len(val_candidates) == len(df.patient.unique())
 	assert len(set(ts_candidates) & set(tr_candidates)) == 0
 	assert len(set(ts_candidates) & set(val_candidates)) == 0
 	assert len(set(tr_candidates) & set(val_candidates)) == 0
 
 	# --- get train datasets
-	tr_sk_df = get_skewed_data(tr_candidates_df, rng)
+	tr_sk_df = get_skewed_data(tr_candidates_df, py1d = 0.9, py00 = 0.7, rng=rng)
 	tr_sk_df = get_weights(tr_sk_df)
 	save_created_data(tr_sk_df, experiment_directory=experiment_directory,
 		filename='skew_train')
 
-	tr_usk_df = get_unskewed_data(tr_candidates_df, tr_sk_df, rng)
+	tr_usk_df = get_skewed_data(tr_candidates_df, py1d = 0.5, py00 = 0.7, rng=rng)
 	tr_usk_df = get_weights(tr_usk_df)
 	save_created_data(tr_usk_df, experiment_directory=experiment_directory,
 		filename='unskew_train')
 
 
 	# --- get validation datasets
-	val_sk_df = get_skewed_data(val_candidates_df, rng)
+	val_sk_df = get_skewed_data(val_candidates_df, py1d = 0.9, py00 = 0.7, rng=rng)
 	val_sk_df = get_weights(val_sk_df)
 	save_created_data(val_sk_df, experiment_directory=experiment_directory,
 		filename='skew_valid')
 
-	val_usk_df = get_unskewed_data(val_candidates_df, val_sk_df, rng)
+	val_usk_df = get_skewed_data(val_candidates_df, py1d = 0.5, py00 = 0.7, rng=rng)
 	val_usk_df = get_weights(val_usk_df)
 	save_created_data(val_usk_df, experiment_directory=experiment_directory,
 		filename='unskew_valid')
 
 
 	# --- get test
-	ts_sk_df = get_skewed_data(ts_candidates_df, rng)
+	ts_sk_df = get_skewed_data(ts_candidates_df, py1d = 0.9, py00 = 0.7, rng=rng)
 	ts_sk_df = get_weights(ts_sk_df)
 	save_created_data(ts_sk_df, experiment_directory=experiment_directory,
 		filename='skew_test')
 
-	ts_usk_df = get_unskewed_data(ts_candidates_df, ts_sk_df, rng)
+	ts_usk_df = get_skewed_data(ts_candidates_df, py1d = 0.5, py00 = 0.7, rng=rng)
 	ts_usk_df = get_weights(ts_usk_df)
 	save_created_data(ts_usk_df, experiment_directory=experiment_directory,
 		filename='unskew_test')
@@ -393,7 +456,7 @@ def build_input_fns_sr(skew_train='False', p_tr=.7, Kfolds=0, random_seed=None):
 				eval_shift_dataset = eval_shift_dataset.map(map_to_image_label_given_pixel)
 				eval_shift_dataset = eval_shift_dataset.batch(batch_size).repeat(1)
 				return eval_shift_dataset
-		else: 
+		else:
 			def eval_input_fn():
 				eval_shift_dataset = tf.data.TFRecordDataset(f'{experiment_directory}/skew_test.tfrecord')
 				eval_shift_dataset = eval_shift_dataset.map(map_to_image_label_given_pixel)

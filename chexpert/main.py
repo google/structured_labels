@@ -19,6 +19,7 @@ from absl import flags
 
 from chexpert import data_builder
 from shared import train
+from shared import train_rex
 from shared.utils import restrict_GPU_tf
 
 FLAGS = flags.FLAGS
@@ -48,6 +49,8 @@ flags.DEFINE_string('two_way_mmd', 'False',
 											'two way mmd?.')
 flags.DEFINE_string('warmstart_dir', 'None',
 											'Directory of saved model to warm start from.')
+flags.DEFINE_string('rex', 'False',
+											'Run the rex benchmark.')
 flags.DEFINE_float('dropout_rate', 0.0, 'Value for drop out rate')
 flags.DEFINE_float('l2_penalty', 0.0,
 									'L2 regularization penalty for final layer')
@@ -71,38 +74,65 @@ def main(argv):
 
 	def dataset_builder():
 		return data_builder.build_input_fns(
-			skew_train=FLAGS.skew_train, 
+			skew_train=FLAGS.skew_train,
 			p_tr=FLAGS.p_tr,
-			Kfolds=FLAGS.Kfolds,			
+			Kfolds=FLAGS.Kfolds,
 			random_seed=FLAGS.random_seed)
 
 	restrict_GPU_tf(FLAGS.gpuid, memfrac = 0.8)
 
 	py1_y0_shift_list = [0.5, 0.9]
-	train.train(
-		exp_dir=FLAGS.exp_dir,
-		dataset_builder=dataset_builder,
-		architecture=FLAGS.architecture,
-		training_steps=FLAGS.training_steps,
-		pixel=FLAGS.pixel,
-		num_epochs=FLAGS.num_epochs,
-		batch_size=FLAGS.batch_size,
-		Kfolds=FLAGS.Kfolds,
-		alpha=FLAGS.alpha,
-		sigma=FLAGS.sigma,
-		balanced_weights=FLAGS.balanced_weights,
-		weighted_mmd=FLAGS.weighted_mmd,
-		two_way_mmd=FLAGS.two_way_mmd,
-		dropout_rate=FLAGS.dropout_rate,
-		l2_penalty=FLAGS.l2_penalty,
-		embedding_dim=FLAGS.embedding_dim,
-		random_augmentation=FLAGS.random_augmentation,
-		random_seed=FLAGS.random_seed,
-		minimize_logits=FLAGS.minimize_logits,
-		warmstart_dir=FLAGS.warmstart_dir,
-		cleanup=FLAGS.cleanup,
-		py1_y0_shift_list=py1_y0_shift_list, 
-		debugger=FLAGS.debugger)
+
+	if FLAGS.rex == 'False':
+		train.train(
+			exp_dir=FLAGS.exp_dir,
+			dataset_builder=dataset_builder,
+			architecture=FLAGS.architecture,
+			training_steps=FLAGS.training_steps,
+			pixel=FLAGS.pixel,
+			num_epochs=FLAGS.num_epochs,
+			batch_size=FLAGS.batch_size,
+			Kfolds=FLAGS.Kfolds,
+			alpha=FLAGS.alpha,
+			sigma=FLAGS.sigma,
+			balanced_weights=FLAGS.balanced_weights,
+			weighted_mmd=FLAGS.weighted_mmd,
+			two_way_mmd=FLAGS.two_way_mmd,
+			dropout_rate=FLAGS.dropout_rate,
+			l2_penalty=FLAGS.l2_penalty,
+			embedding_dim=FLAGS.embedding_dim,
+			random_augmentation=FLAGS.random_augmentation,
+			random_seed=FLAGS.random_seed,
+			minimize_logits=FLAGS.minimize_logits,
+			warmstart_dir=FLAGS.warmstart_dir,
+			cleanup=FLAGS.cleanup,
+			py1_y0_shift_list=py1_y0_shift_list,
+			debugger=FLAGS.debugger)
+	else: 
+		train_rex.train(
+			exp_dir=FLAGS.exp_dir,
+			dataset_builder=dataset_builder,
+			architecture=FLAGS.architecture,
+			training_steps=FLAGS.training_steps,
+			pixel=FLAGS.pixel,
+			num_epochs=FLAGS.num_epochs,
+			batch_size=FLAGS.batch_size,
+			rex=FLAGS.rex,
+			Kfolds=FLAGS.Kfolds,
+			alpha=FLAGS.alpha,
+			sigma=FLAGS.sigma,
+			balanced_weights=FLAGS.balanced_weights,
+			weighted_mmd=FLAGS.weighted_mmd,
+			two_way_mmd=FLAGS.two_way_mmd,
+			dropout_rate=FLAGS.dropout_rate,
+			l2_penalty=FLAGS.l2_penalty,
+			embedding_dim=FLAGS.embedding_dim,
+			random_augmentation=FLAGS.random_augmentation,
+			random_seed=FLAGS.random_seed,
+			minimize_logits=FLAGS.minimize_logits,
+			warmstart_dir=FLAGS.warmstart_dir,
+			cleanup=FLAGS.cleanup,
+			py1_y0_shift_list=py1_y0_shift_list)
 
 
 if __name__ == '__main__':

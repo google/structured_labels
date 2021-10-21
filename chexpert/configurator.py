@@ -19,35 +19,39 @@ import itertools
 import re
 
 
-def configure_slabs(skew_train, weighted_mmd, balanced_weights):
+def configure_slabs(skew_train, weighted_mmd, balanced_weights,
+	two_way_mmd=False):
 	"""Creates hyperparameters for correlations experiment for SLABS model.
 
 	Returns:
 		Iterator with all hyperparameter combinations
 	"""
 	param_dict = {
-		'random_seed': [i for i in range(5)],
+		'random_seed': [i for i in range(10)],
 		'pixel': [512],
 		'l2_penalty': [0.0],
 		'dropout_rate': [0.0],
 		'embedding_dim': [10],
 		# 'sigma': [1.0, 10.0, 1e2, 1e3],
 		# 'alpha': [1e3, 1e5, 1e7],
-		'sigma': [1e2],
-		'alpha': [1e5],
+		'sigma': [10.0, 1e2, 1e3],
+		'alpha': [1e3, 1e5, 1e7],
 		"architecture": ["pretrained_densenet"],
-		"batch_size": [16],
+		"batch_size": [32],
 		'weighted_mmd': [weighted_mmd],
 		"balanced_weights": [balanced_weights],
 		'minimize_logits': ["False"],
-		"skew_train": [skew_train], 
-		'num_epochs': [3]
+		"skew_train": [skew_train],
+		'num_epochs': [10]
 	}
+	if two_way_mmd:
+		param_dict['two_way_mmd'] = ['True']
 
 	print(param_dict)
 	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
 	keys, values = zip(*param_dict_ordered.items())
 	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
+
 	return sweep
 
 
@@ -59,21 +63,54 @@ def configure_simple_baseline(skew_train, weighted):
 	"""
 
 	param_dict = {
-		'random_seed': [0],
+		'random_seed': [i for i in range(10)],
 		'pixel': [512],
-		'l2_penalty': [0.0],
+		'l2_penalty': [0.0, 0.0001, 0.001],
 		# 'l2_penalty': [0.0],
 		'dropout_rate': [0.0],
 		'embedding_dim': [10],
 		'sigma': [10.0],
 		'alpha': [0.0],
 		"architecture": ["pretrained_densenet"],
-		"batch_size": [16],
+		"batch_size": [32],
 		'weighted_mmd': [weighted],
 		"balanced_weights": [weighted],
 		'minimize_logits': ["False"],
-		"skew_train": ['True'], 
-		"num_epochs": [3]
+		"skew_train": [skew_train],
+		"num_epochs": [10]
+	}
+
+	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
+	keys, values = zip(*param_dict_ordered.items())
+	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
+	print(param_dict)
+	return sweep
+
+
+
+def configure_rex(skew_train, weighted):
+	"""Creates hyperparameters for the correlations experiment for baseline.
+
+	Returns:
+		Iterator with all hyperparameter combinations
+	"""
+
+	param_dict = {
+		'random_seed': [i for i in range(10)],
+		'pixel': [512],
+		'l2_penalty': [0.0],
+		'dropout_rate': [0.0],
+		'embedding_dim': [10],
+		'sigma': [10.0],
+		'alpha': [10**2, 10**4, 10**6],
+		"architecture": ["pretrained_densenet"],
+		"batch_size": [32],
+		'weighted_mmd': [weighted],
+		"balanced_weights": [weighted],
+		'minimize_logits': ["False"],
+		"skew_train": [skew_train],
+		"num_epochs": [10],
+		'rex': [ 'True_norm']
 	}
 
 	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
@@ -82,6 +119,8 @@ def configure_simple_baseline(skew_train, weighted):
 	print(param_dict)
 
 	return sweep
+
+
 
 
 def configure_random_augmentation(skew_train, weighted):
@@ -100,7 +139,7 @@ def configure_random_augmentation(skew_train, weighted):
 		'sigma': [10.0],
 		'alpha': [0.0],
 		"architecture": ["pretrained_densenet"],
-		"batch_size": [64],
+		"batch_size": [32],
 		'weighted_mmd': [weighted],
 		"balanced_weights": [weighted],
 		'minimize_logits': ["False"],
@@ -114,8 +153,6 @@ def configure_random_augmentation(skew_train, weighted):
 	print(param_dict)
 
 	return sweep
-
-
 
 def get_sweep(experiment, model):
 	"""Wrapper function, creates configurations based on experiment and model.
@@ -132,10 +169,10 @@ def get_sweep(experiment, model):
 	implemented_models = [
 		'slabs_weighted', 'slabs_weighted_bal', 'slabs_weighted_bal_two_way',
 		'slabs_warmstart_weighted', 'slabs_warmstart_weighted_bal',
-		'slabs_logit',
+		'slabs_logit', 'slabs_unweighted_two_way',
 		'unweighted_slabs', 'unweighted_slabs_logit',
 		'simple_baseline','weighted_baseline',
-		'random_aug', 'weighted_random_aug']
+		'random_aug', 'weighted_random_aug', 'rex']
 
 	implemented_experiments = ['skew_train', 'unskew_train']
 
@@ -154,7 +191,7 @@ def get_sweep(experiment, model):
 
 	if model == 'slabs_weighted':
 		return configure_slabs(skew_train=skew_train,
-			weighted_mmd='True', balanced_weights='False')
+			weighted_mmd='True', balanced_weights='False', two_way_mmd=False)
 
 	# if model == 'slabs_warmstart_weighted':
 	# 	return configure_slabs(py0, py1_y0, logit='False',
@@ -163,12 +200,15 @@ def get_sweep(experiment, model):
 
 	if model == 'slabs_weighted_bal':
 		return configure_slabs(skew_train=skew_train,
-			weighted_mmd='True', balanced_weights='True')
+			weighted_mmd='True', balanced_weights='True', two_way_mmd=False)
 
-	# if model == 'slabs_weighted_bal_two_way':
-	# 	return configure_slabs(py0, py1_y0, logit='False',
-	# 		weighted_mmd='True', balanced_weights='True', two_way_mmd=True,
-	# 		warmstart=False, asym_train=asym_train, clean_back=clean_back)
+	if model == 'slabs_weighted_bal_two_way':
+		return configure_slabs(skew_train=skew_train,
+			weighted_mmd='True', balanced_weights='True', two_way_mmd=True)
+
+	if model == 'slabs_unweighted_two_way':
+		return configure_slabs(skew_train=skew_train,
+			weighted_mmd='False', balanced_weights='False', two_way_mmd=True)
 
 	# if model == 'slabs_warmstart_weighted_bal':
 	# 	return configure_slabs(py0, py1_y0, logit='False', weighted_mmd='True',
@@ -203,4 +243,6 @@ def get_sweep(experiment, model):
 	# 	return configure_random_augmentation(py0, py1_y0, weighted='True',
 	# 		asym_train=asym_train, clean_back=clean_back)
 
+	if model == 'rex':
+		return configure_rex(skew_train=skew_train, weighted='False')
 

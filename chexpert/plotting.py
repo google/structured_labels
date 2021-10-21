@@ -66,7 +66,18 @@ def get_model_dict(pval):
 			'label': 'Rand-Aug-C', 'linestyle': 'solid',
 			'color': '#5F6B29'
 		},
-
+		f'unweighted_slabs_uts{pval}': {
+				'label': 'DP', 'linestyle': 'solid',
+				'color': '#A2C8EC'
+		},
+		f'slabs_unweighted_two_way_ts{pval}': {
+			'label': 'EO', 'linestyle': 'solid',
+			'color': '#C85200'
+		},
+		'rex': {
+			'label': 'Rex', 'linestyle': 'solid',
+			'color': '#006BA4'
+		},
 	}
 
 
