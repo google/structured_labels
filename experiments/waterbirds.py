@@ -40,7 +40,7 @@ FINAL_MODELS_DIR = f'{BASE_DIR}/final_models'
 
 HOST = socket.gethostname()
 
-AVAILABLE_GPUS = [0, 1, 2, 3, 4, 5] if HOST == 'milo' else [0, 1, 2, 3]
+AVAILABLE_GPUS = [0, 1, 2, 3, 4, 5, 6, 7] if HOST == 'milo' else [0, 1, 2, 3]
 if HOST not in  ['milo', 'ahoy', 'mars', 'twix', 'oreo']:
 	AVAILABLE_GPUS = os.environ['CUDA_VISIBLE_DEVICES']
 	AVAILABLE_GPUS = [gpu for gpu in AVAILABLE_GPUS if gpu != ',' and gpu !=' ']
@@ -98,10 +98,10 @@ def runner(config, overwrite):
 		chosen_gpu = QUEUE.get()
 		config['gpuid'] = chosen_gpu
 		flags = ' '.join('--%s %s' % (k, str(v)) for k, v in config.items())
-		# subprocess.call(f'python -m waterbirds.main {flags} > {hash_dir}/log.log 2>&1',
-		# 	shell=True)
+		subprocess.call(f'python -m waterbirds.main {flags} > {hash_dir}/log.log 2>&1',
+			shell=True)
 		# subprocess.call('python -m waterbirds.main %s' % flags, shell=True)
-		print(f'python -m waterbirds.main {flags} > {hash_dir}/log.log 2>&1')
+		# print(f'python -m waterbirds.main {flags} > {hash_dir}/log.log 2>&1')
 		config.pop('exp_dir')
 		config.pop('cleanup')
 		pickle.dump(config, open(os.path.join(hash_dir, 'config.pkl'), 'wb'))
@@ -111,6 +111,7 @@ def runner(config, overwrite):
 
 def main(experiment_name,
 					model_to_tune,
+					batch_size,
 					oracle_prop,
 					num_trials,
 					overwrite,
@@ -132,7 +133,8 @@ def main(experiment_name,
 		Returns:
 			nothing
 	"""
-	all_config = configurator.get_sweep(experiment_name, model_to_tune, clean_back, oracle_prop)
+	all_config = configurator.get_sweep(experiment_name, model_to_tune, batch_size,
+		clean_back, oracle_prop)
 	print(f'All configs are {len(all_config)}')
 
 
@@ -149,7 +151,7 @@ def main(experiment_name,
 			configs_to_run = [config_id in configs_to_run for config_id in
 				range(len(all_config))]
 			all_config = list(itertools.compress(all_config, configs_to_run))
-		all_config = all_config[:1]
+		# all_config = all_config[:1]
 		pool = multiprocessing.Pool(NUM_GPUS * PROC_PER_GPU)
 		runner_wrapper = functools.partial(runner, overwrite=overwrite)
 		for _ in tqdm.tqdm(pool.imap_unordered(runner_wrapper, all_config),
@@ -157,7 +159,7 @@ def main(experiment_name,
 			pass
 
 	elif pick_best:
-
+		# all_config = all_config[:1]
 		original_configs = len(all_config)
 		configs_available = [
 			utils.tried_config(config, base_dir=BASE_DIR) for config in all_config
@@ -173,48 +175,71 @@ def main(experiment_name,
 			os.mkdir(FINAL_MODELS_DIR)
 
 
-		classic_final_model, _ = \
-			cv.get_optimal_model_results(mode='classic', configs=all_config,
-				base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
-				'embedding_dim'], weighted_xv='False')
+		if 'rex' in model_to_tune:
+			classic_final_model, classic_optimal_config = \
+				cv.get_optimal_model_results(mode='accuracy', configs=all_config,
+					base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
+					'embedding_dim'], weighted_xv='False')
 
-		classic_final_model['model'] = f'{model_to_tune}_classic'
-		classic_final_model.to_csv(
-			f'{FINAL_MODELS_DIR}/{model_to_tune}_classic_{experiment_name}_{clean_back}.csv',
-			index=False)
-
-		# print("==========Ratio for classic=============")
-		# ratios = post_training_eval.get_model_risks(classic_optimal_config)
-		# print("avgs")
-		# print(ratios)
-
-		if 'slab' in model_to_tune:
-			if experiment_name == '8090':
-				weighted_xv = 'weighted_bal'
-			else:
-				weighted_xv = 'False'
-			print("===== 2 step xv======")
-			twostep_final_model, _ = \
-				cv.get_optimal_model_results(mode='two_step', configs=all_config,
-					base_dir=BASE_DIR, hparams=['alpha', 'sigma',
-					'dropout_rate', 'l2_penalty', 'embedding_dim'],
-					weighted_xv=weighted_xv, pval=PVAL)
-
-			twostep_final_model['model'] = f'{model_to_tune}_ts{PVAL}'
-			twostep_final_model.to_csv(
-				f'{FINAL_MODELS_DIR}/{model_to_tune}_ts{PVAL}_{experiment_name}_{clean_back}.csv',
+			classic_final_model['model'] = f'{model_to_tune}_classic'
+			classic_final_model.to_csv(
+				f'{FINAL_MODELS_DIR}/{model_to_tune}_classic_{experiment_name}_{clean_back}_{batch_size}.csv',
 				index=False)
 
-		if ('unweighted_slabs' in model_to_tune) and (experiment_name =='8090'):
-			twostep_final_model, _ = \
-				cv.get_optimal_model_results(mode='two_step', configs=all_config,
-					base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate',
-					'l2_penalty', 'embedding_dim'], weighted_xv='False', pval=PVAL)
-
-			twostep_final_model['model'] = f'{model_to_tune}_uts{PVAL}'
-			twostep_final_model.to_csv(
-				f'{FINAL_MODELS_DIR}/{model_to_tune}_uts{PVAL}_{experiment_name}_{clean_back}.csv',
+			classic_optimal_config.to_csv(
+				f'{FINAL_MODELS_DIR}/optimal_config_{model_to_tune}_classic_{experiment_name}_{clean_back}_{batch_size}.csv',
 				index=False)
+
+		else:
+			classic_final_model, classic_optimal_config = \
+				cv.get_optimal_model_results(mode='classic', configs=all_config,
+					base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate', 'l2_penalty',
+					'embedding_dim'], weighted_xv='False')
+
+			classic_final_model['model'] = f'{model_to_tune}_classic'
+			classic_final_model.to_csv(
+				f'{FINAL_MODELS_DIR}/{model_to_tune}_classic_{experiment_name}_{clean_back}_{batch_size}.csv',
+				index=False)
+			classic_optimal_config.to_csv(
+				f'{FINAL_MODELS_DIR}/optimal_config_{model_to_tune}_classic_{experiment_name}_{clean_back}_{batch_size}.csv',
+				index=False)
+
+			if 'slab' in model_to_tune:
+				if experiment_name == '8090':
+					weighted_xv = 'weighted_bal'
+				else:
+					weighted_xv = 'False'
+				print("===== 2 step xv======")
+				twostep_final_model, twostep_final_optimal_config = \
+					cv.get_optimal_model_results(mode='two_step', configs=all_config,
+						base_dir=BASE_DIR, hparams=['alpha', 'sigma',
+						'dropout_rate', 'l2_penalty', 'embedding_dim'],
+						weighted_xv=weighted_xv, pval=PVAL)
+
+				twostep_final_model['model'] = f'{model_to_tune}_ts{PVAL}'
+				twostep_final_model.to_csv(
+					f'{FINAL_MODELS_DIR}/{model_to_tune}_ts{PVAL}_{experiment_name}_{clean_back}_{batch_size}.csv',
+					index=False)
+
+				twostep_final_optimal_config.to_csv(
+					f'{FINAL_MODELS_DIR}/optimal_config_{model_to_tune}_ts{PVAL}_{experiment_name}_{clean_back}_{batch_size}.csv',
+					index=False)
+
+			if ('unweighted_slabs' in model_to_tune):
+				twostep_final_model, twostep_final_optimal_config = \
+					cv.get_optimal_model_results(mode='two_step', configs=all_config,
+						base_dir=BASE_DIR, hparams=['alpha', 'sigma', 'dropout_rate',
+						'l2_penalty', 'embedding_dim'], weighted_xv='False', pval=PVAL)
+
+				twostep_final_model['model'] = f'{model_to_tune}_uts{PVAL}'
+				twostep_final_model.to_csv(
+					f'{FINAL_MODELS_DIR}/{model_to_tune}_uts{PVAL}_{experiment_name}_{clean_back}_{batch_size}.csv',
+					index=False)
+
+				twostep_final_optimal_config.to_csv(
+					f'{FINAL_MODELS_DIR}/optimal_config_{model_to_tune}_uts{PVAL}_{experiment_name}_{clean_back}_{batch_size}.csv',
+					index=False)
+
 
 	elif clean_directories:
 		print("Are you sure you want to delete? Uncomment the next line then!")
@@ -243,14 +268,20 @@ if __name__ == "__main__":
 		choices=[
 			'slabs_weighted', 'slabs_weighted_bal', 'slabs_weighted_bal_two_way',
 			'slabs_warmstart_weighted', 'slabs_warmstart_weighted_bal',
-			'slabs_logit',
+			'slabs_logit', 'slabs_unweighted_two_way',
 			'unweighted_slabs', 'unweighted_slabs_logit',
 			'simple_baseline','weighted_baseline',
 			'oracle_aug', 'weighted_oracle_aug',
-			'random_aug', 'weighted_random_aug'
+			'random_aug', 'weighted_random_aug',
+			'rex'
 			],
 		help="Which model to tune",
 		type=str)
+
+	parser.add_argument('--batch_size', '-batch_size',
+		default=64,
+		help=("training batch size"),
+		type=int)
 
 	parser.add_argument('--oracle_prop', '-oracle_prop',
 		default=-1.0,
