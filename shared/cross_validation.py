@@ -65,12 +65,16 @@ def import_helper(config, base_dir):
 	results_dict = pickle.load(open(performance_file, 'rb'))
 	# print(results_dict['validation_global_step'])
 	results_dict.update(config)
-	if 'pflip0' not in results_dict.keys():
+
+	if 'chexpert' in base_dir:
 		results_dict['pflip0'] = 0.0
 		results_dict['pflip1'] = 0.0
 		results_dict['clean_back'] = 'NA'
 		results_dict['py0'] = 'NA'
 		results_dict['py1_y0'] = 'NA'
+	if 'mnist' in base_dir:
+		results_dict['clean_back'] = 'NA'
+	results_dict['hash'] = hash_string
 	return pd.DataFrame(results_dict, index=[0])
 
 
@@ -142,7 +146,7 @@ def reshape_results(results):
 def get_optimal_model_results(mode, configs, base_dir, hparams,
 	equivalent=True, weighted_xv=False, pval=0.1):
 
-	if mode not in ['classic', 'two_step', 'three_step']:
+	if mode not in ['classic', 'two_step', 'three_step', 'accuracy']:
 		raise NotImplementedError('Can only run classic or two_step modes')
 	if mode == 'classic':
 		return get_optimal_model_classic(configs, None, base_dir, hparams)
@@ -150,15 +154,15 @@ def get_optimal_model_results(mode, configs, base_dir, hparams,
 		return get_optimal_model_two_step(configs, base_dir, hparams, weighted_xv, pval)
 	elif mode == 'three_step':
 		return get_optimal_model_three_step(configs, base_dir, hparams, weighted_xv, pval)
-
-
+	elif mode == 'accuracy':
+		return get_optimal_model_accuracy(configs, None, base_dir, hparams)
 
 def get_optimal_model_two_step(configs, base_dir, hparams, weighted_xv, pval):
 	all_results, available_configs = import_results(configs, base_dir)
 	sigma_results = get_sigma.get_optimal_sigma(available_configs, kfolds=3,
 		weighted_xv=weighted_xv, compute_loss=False)
 	# print("this is sig res")
-	print(sigma_results.sort_values(['random_seed', 'sigma', 'alpha']))
+	#  print(sigma_results.sort_values(['random_seed', 'sigma', 'alpha']))
 	best_pval = sigma_results.groupby('random_seed').pval.max()
 	best_pval = best_pval.to_frame()
 	best_pval.reset_index(inplace=True, drop=False)
@@ -264,25 +268,59 @@ def get_optimal_model_classic(configs, filtered_results, base_dir, hparams):
 		(all_results.validation_pred_loss == all_results.min_validation_pred_loss)
 	]
 
-	print(all_results[['random_seed', 'sigma', 'alpha', 'l2_penalty']])
-	# TODO clean this up
+	# print(all_results[['random_seed', 'sigma', 'alpha', 'l2_penalty']])
 
-	optimal_config_cols = ['random_seed', 'pflip0', 'pflip1', 'py0',
-		'py1_y0', 'pixel', 'l2_penalty', 'dropout_rate', 'embedding_dim',
-		'sigma', 'alpha', 'architecture', 'batch_size', 'weighted_mmd',
-		'balanced_weights', 'minimize_logits', 'clean_back']
-	if 'warmstart_dir' in list(all_results.columns):
-		optimal_config_cols = optimal_config_cols + ['warmstart_dir']
-	if 'two_way_mmd' in list(all_results.columns):
-		optimal_config_cols = optimal_config_cols + ['two_way_mmd']
+	optimal_configs = all_results[['random_seed', 'hash']]
 
-	optimal_configs = all_results.copy()
-	optimal_configs = optimal_configs[optimal_config_cols]
-	optimal_configs = optimal_configs.to_dict('records')
+	# --- get the final results over all runs
+	mean_results = all_results.mean(axis=0).to_frame()
+	mean_results.rename(columns={0: 'mean'}, inplace=True)
+	std_results = all_results.std(axis=0).to_frame()
+	std_results.rename(columns={0: 'std'}, inplace=True)
+	final_results = mean_results.merge(
+		std_results, left_index=True, right_index=True
+	)
 
-	# optimal_configs = [
-	# 	collections.OrderedDict(config_dict) for config_dict in optimal_configs
-	# ]
+	final_results = final_results.transpose()
+	final_results_clean = reshape_results(final_results)
+
+	return final_results_clean, optimal_configs
+
+
+def get_optimal_model_accuracy(configs, filtered_results, base_dir, hparams):
+	if ((configs is None) and (filtered_results is None)):
+		raise ValueError("Need either configs or table of results_dict")
+
+	if configs is not None:
+		print("getting results")
+		all_results, _ = import_results(configs, base_dir)
+	else:
+		all_results = filtered_results.copy()
+
+	# print(all_results.alpha.value_counts())
+	# assert 1==2 
+	# ---get optimal hyperparams based on prediction loss
+	# all_results['validation_pred_loss'] = all_results['validation_auc']
+	#  print(all_results[['alpha', 'sigma', 'validation_pred_loss', 'validation_mmd']][(all_results.random_seed==22)])
+	all_results['validation_pred_loss'] = all_results['validation_accuracy']
+	columns_to_keep = hparams + ['random_seed', 'validation_pred_loss']
+	best_loss = all_results[columns_to_keep]
+	best_loss = best_loss.groupby('random_seed').validation_pred_loss.max()
+	best_loss = best_loss.to_frame()
+
+
+	best_loss.reset_index(drop=False, inplace=True)
+	best_loss.rename(columns={'validation_pred_loss': 'min_validation_pred_loss'},
+		inplace=True)
+	all_results = all_results.merge(best_loss, on='random_seed')
+
+	all_results = all_results[
+		(all_results.validation_pred_loss == all_results.min_validation_pred_loss)
+	]
+
+	# print(all_results[['random_seed', 'sigma', 'alpha', 'l2_penalty']])
+
+	optimal_configs = all_results[['random_seed', 'hash']]
 
 	# --- get the final results over all runs
 	mean_results = all_results.mean(axis=0).to_frame()

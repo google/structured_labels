@@ -308,7 +308,7 @@ class PretrainedResNet50_RandomAugmentation(tf.keras.Model):
 	def call(self, inputs, training=False):
 		if training:
 			x = self.data_augmentation(inputs, training=training)
-		else: 
+		else:
 			x = inputs
 		x = self.resenet(inputs, training)
 		x = self.avg_pool(x)
@@ -413,7 +413,7 @@ class PretrainedDenseNet121_RandomAugmentation(tf.keras.Model):
 	def call(self, inputs, training=False):
 		if training:
 			x = self.data_augmentation(inputs, training=training)
-		else: 
+		else:
 			x = inputs
 		x = self.densenet(inputs, training)
 		x = self.avg_pool(x)
@@ -459,8 +459,8 @@ class SimpleConvolutionNet(tf.keras.Model):
 	def __init__(self, dropout_rate=0.0, l2_penalty=0.0, embedding_dim=1000):
 		super(SimpleConvolutionNet, self).__init__()
 		# self.scale = preprocessing.Rescaling(1.0 / 255)
-		self.conv1 = tf.keras.layers.Conv2D(32, [3, 3], activation="relu")
-		self.conv2 = tf.keras.layers.Conv2D(64, [3, 3], activation="relu")
+		self.conv1 = tf.keras.layers.Conv2D(32, 3, activation="relu")
+		self.conv2 = tf.keras.layers.Conv2D(64, 3, activation="relu")
 		self.maxpool1 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
 		self.dropout = tf.keras.layers.Dropout(dropout_rate)
 
@@ -481,4 +481,3 @@ class SimpleConvolutionNet(tf.keras.Model):
 		z = self.flatten1(z)
 		z = self.dense1(z)
 		return self.dense2(z), z
-

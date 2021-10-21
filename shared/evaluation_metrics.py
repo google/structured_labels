@@ -113,7 +113,6 @@ def compute_loss_weighted(labels, logits, z_pred, sample_weights,
 	else:
 		y_main_for_mmd = None
 
-
 	other_label_inds = [
 		lab_ind for lab_ind in range(labels.shape[1])
 		if lab_ind != params["label_ind"]
@@ -124,7 +123,7 @@ def compute_loss_weighted(labels, logits, z_pred, sample_weights,
 		mmd_val = losses.mmd_loss(
 			embedding=embedding_features,
 			auxiliary_labels=labels[:, lab_ind],
-			main_labels = y_main_for_mmd,
+			main_labels=y_main_for_mmd,
 			weights_pos=sample_weights_pos,
 			weights_neg=sample_weights_neg,
 			params=params)
@@ -154,8 +153,6 @@ def compute_loss_unweighted(labels, logits, z_pred, params):
 		y_main_for_mmd = labels[:, params["label_ind"]]
 	else:
 		y_main_for_mmd = None
-
-
 
 	other_label_inds = [
 		lab_ind for lab_ind in range(labels.shape[1])

@@ -20,7 +20,7 @@ import gc
 
 from shared import architectures
 from shared import train_utils
-from shared import evaluation_metrics
+from shared import rex_evaluation_metrics
 from shared import profiler
 
 import pandas as pd
@@ -125,14 +125,7 @@ class DynamicSigmaHook(tf.estimator.SessionRunHook):
 
 def serving_input_fn():
 	"""Serving function to facilitate model saving."""
-	# feat = array_ops.placeholder(dtype=dtypes.float32, shape=[None, 28, 28, 3])
 	feat = array_ops.placeholder(dtype=dtypes.float32)
-	return tf.estimator.export.TensorServingInputReceiver(features=feat,
-		receiver_tensors=feat)
-
-def serving_input_fn_simple_arch():
-	"""Serving function to facilitate model saving."""
-	feat = array_ops.placeholder(dtype=dtypes.float32, shape=[None, 28, 28, 3])
 	return tf.estimator.export.TensorServingInputReceiver(features=feat,
 		receiver_tensors=feat)
 
@@ -171,16 +164,18 @@ def model_fn(features, labels, mode, params):
 		main_eval_metrics = {}
 
 		# -- main loss components
-		eval_pred_loss, eval_mmd_loss = evaluation_metrics.compute_loss(labels, logits, zpred,
+		eval_loss_sum, eval_loss_var = rex_evaluation_metrics.compute_loss(labels, logits, zpred,
 			sample_weights, sample_weights_pos, sample_weights_neg, params)
 
-		main_eval_metrics['pred_loss'] = tf.compat.v1.metrics.mean(eval_pred_loss)
-		main_eval_metrics['mmd'] = tf.compat.v1.metrics.mean(eval_mmd_loss)
+		main_eval_metrics['pred_loss'] = tf.compat.v1.metrics.mean(eval_loss_sum)
 
-		loss = eval_pred_loss + params["alpha"] * eval_mmd_loss
+		loss = eval_loss_sum + params["alpha"] * eval_loss_var
+
+		if params['rex'] == 'True_norm':
+			loss = loss / params["alpha"]
 
 		# -- additional eval metrics
-		additional_eval_metrics = evaluation_metrics.get_eval_metrics_dict(
+		additional_eval_metrics = rex_evaluation_metrics.get_eval_metrics_dict(
 			labels, predictions, sample_weights,
 			sample_weights_pos, sample_weights_neg, SIGMA_LIST, params)
 
@@ -205,16 +200,13 @@ def model_fn(features, labels, mode, params):
 			logits, zpred = net(features, training=training_state)
 			ypred = tf.nn.sigmoid(logits)
 
-			prediction_loss, mmd_loss = evaluation_metrics.compute_loss(labels, logits, zpred,
+			loss_sum, loss_var = rex_evaluation_metrics.compute_loss(labels, logits, zpred,
 				sample_weights, sample_weights_pos, sample_weights_neg, curr_params)
 
 			regularization_loss = tf.reduce_sum(net.losses)
-			if params['weighted_mmd'] == 'half':
-				loss = regularization_loss + tf.reduce_mean(sample_weights) * prediction_loss + curr_params["alpha"] * mmd_loss
-
-			else:
-				loss = regularization_loss + prediction_loss + curr_params["alpha"] * mmd_loss
-
+			loss = regularization_loss + loss_sum + curr_params["alpha"] * loss_var
+			if params['rex'] == 'True_norm':
+				loss = loss / params["alpha"]
 
 		variables = net.trainable_variables
 		gradients = tape.gradient(loss, variables)
@@ -239,6 +231,7 @@ def train(exp_dir,
 					pixel,
 					num_epochs,
 					batch_size,
+					rex,
 					Kfolds,
 					alpha,
 					sigma,
@@ -254,7 +247,7 @@ def train(exp_dir,
 					warmstart_dir,
 					cleanup,
 					py1_y0_shift_list=None,
-					debugger='True'):
+					debugger='False'):
 	"""Trains the estimator."""
 
 	scratch_exp_dir = exp_dir.replace('/data/ddmg/slabs/',
@@ -277,6 +270,7 @@ def train(exp_dir,
 		"architecture": architecture,
 		"num_epochs": num_epochs,
 		"batch_size": batch_size,
+		"rex": rex,
 		"steps_per_epoch": steps_per_epoch,
 		"update_sigma_every_epochs": update_sigma_every_epochs,
 		"Kfolds": Kfolds,
@@ -298,7 +292,7 @@ def train(exp_dir,
 	assert save_every_epochs == update_sigma_every_epochs
 
 	if debugger == 'True':
-		save_checkpoints_steps = 50
+		save_checkpoints_steps = 200
 	if 'chexpert' in exp_dir:
 		save_checkpoints_steps = 10000
 	else:
@@ -324,13 +318,13 @@ def train(exp_dir,
 	print(f'=======TRAINING STEPS {training_steps}=============')
 
 	if 'chexpert' in exp_dir:
-		saving_listeners = [EvalCheckpointSaverListener(est, train_input_fn, "train")]
+		saving_listeners = []
 	else:
 		saving_listeners = [
 			EvalCheckpointSaverListener(est, train_input_fn, "train"),
 			# EvalCheckpointSaverListener(est, eval_input_fn_creater(0.1, params), "0.1"),
-			# EvalCheckpointSaverListener(est, eval_input_fn_creater(0.5, params), "0.5"),
-			# EvalCheckpointSaverListener(est, eval_input_fn_creater(0.9, params),"0.9"),
+			EvalCheckpointSaverListener(est, eval_input_fn_creater(0.5, params), "0.5"),
+			EvalCheckpointSaverListener(est, eval_input_fn_creater(0.9, params),"0.9"),
 		]
 	est.train(train_input_fn, steps=training_steps,
 			hooks=[
@@ -364,10 +358,8 @@ def train(exp_dir,
 
 
 	# save model
-	if 'cmnist' in exp_dir:
-		est.export_saved_model(f'{exp_dir}/saved_model', serving_input_fn_simple_arch)
-	else:
-		est.export_saved_model(f'{exp_dir}/saved_model', serving_input_fn)
+	print(f'{exp_dir}/saved_model')
+	est.export_saved_model(f'{exp_dir}/saved_model', serving_input_fn)
 
 	# if cleanup == 'True':
 	train_utils.cleanup_directory(scratch_exp_dir)
