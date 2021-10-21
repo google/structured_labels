@@ -30,8 +30,6 @@ SEGMENTATION_DIR = '/data/ddmg/slabs/segmentations/'
 
 EASY_DATA = True
 
-
-
 NUM_PLACE_IMAGES_CLEAN = 8000
 WATER_IMG_DIR_CLEAN = 'water_easy'
 LAND_IMG_DIR_CLEAN = 'land_easy'
@@ -375,7 +373,7 @@ def create_save_waterbird_lists(experiment_directory, py0=0.8, p_tr=.7, py1_y0=1
 			train_valid_df, num_place_images, num_place_images, py1_y0=py1_y0,
 			pflip0=pflip0, pflip1=pflip1, clean_back=clean_back)
 
-	else: 
+	else:
 		train_valid_df, used_water_img_ids, used_land_img_ids = create_images_labels(
 			train_valid_df, num_place_images, num_place_images, py1_y0=py1_y0,
 			pflip0=pflip0, pflip1=pflip1, clean_back=clean_back, asymmetry=0.5)
@@ -512,7 +510,7 @@ def create_save_waterbird_oracle_lists(experiment_directory, main_experiment_dir
 
 		shutil.copy(f'{main_experiment_directory}/asym_test_shift{py1_y0_s_val}.txt',
 			f'{experiment_directory}/asym_test_shift{py1_y0_s_val}.txt')
-		
+
 
 def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 	pflip1=.1, oracle_prop=0.0, Kfolds=0, clean_back='False', asym_train='False', random_seed=None):
@@ -547,7 +545,7 @@ def build_input_fns(p_tr=.7, py0=0.8, py1_y0=1, py1_y0_s=.5, pflip0=.1,
 			pflip0=pflip0,
 			pflip1=pflip1,
 			clean_back=clean_back,
-			asym_train=asym_train, 
+			asym_train=asym_train,
 			random_seed=random_seed)
 
 	if oracle_prop > 0.0:

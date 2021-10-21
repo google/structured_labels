@@ -102,6 +102,7 @@ def runner(config, overwrite):
 
 def main(experiment_name,
 					model_to_tune,
+					batch_size,
 					oracle_prop,
 					num_trials,
 					overwrite,
@@ -123,7 +124,8 @@ def main(experiment_name,
 		Returns:
 			nothing
 	"""
-	all_config = configurator.get_sweep(experiment_name, model_to_tune, clean_back, oracle_prop)
+	all_config = configurator.get_sweep(experiment_name, model_to_tune, batch_size,
+		clean_back, oracle_prop)
 	print(f'All configs are {len(all_config)}')
 
 
@@ -164,11 +166,12 @@ if __name__ == "__main__":
 		choices=[
 			'slabs_weighted', 'slabs_weighted_bal', 'slabs_weighted_bal_two_way',
 			'slabs_warmstart_weighted', 'slabs_warmstart_weighted_bal',
-			'slabs_logit',
+			'slabs_logit', 'slabs_unweighted_two_way',
 			'unweighted_slabs', 'unweighted_slabs_logit',
 			'simple_baseline','weighted_baseline',
 			'oracle_aug', 'weighted_oracle_aug',
-			'random_aug', 'weighted_random_aug'
+			'random_aug', 'weighted_random_aug',
+			'rex'
 			],
 		help="Which model to tune",
 		type=str)
@@ -182,6 +185,11 @@ if __name__ == "__main__":
 	parser.add_argument('--num_trials', '-num_trials',
 		default=1e6,
 		help="Number of hyperparameters to try",
+		type=int)
+
+	parser.add_argument('--batch_size', '-batch_size',
+		default=64,
+		help=("training batch size"),
 		type=int)
 
 	parser.add_argument('--overwrite', '-overwrite',

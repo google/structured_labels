@@ -19,7 +19,8 @@ import itertools
 import re
 
 
-def configure_slabs(py0, py1_y0, logit, weighted_mmd, balanced_weights, two_way_mmd, warmstart, asym_train, clean_back):
+def configure_slabs(py0, py1_y0, logit, weighted_mmd, balanced_weights,
+	two_way_mmd, warmstart, asym_train, batch_size, clean_back):
 	"""Creates hyperparameters for correlations experiment for SLABS model.
 
 	Returns:
@@ -35,12 +36,12 @@ def configure_slabs(py0, py1_y0, logit, weighted_mmd, balanced_weights, two_way_
 		'l2_penalty': [0.0],
 		'dropout_rate': [0.0],
 		'embedding_dim': [10],
-		# 'sigma': [10.0, 1e2, 1e3],
-		# 'alpha': [1e-5, 1e3, 1e5, 1e7],
+		# 'sigma': [1e2],
+		# 'alpha': [1e3],
 		'sigma': [1.0, 10.0, 1e2, 1e3],
 		'alpha': [1e3, 1e5, 1e7],
 		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
+		"batch_size": [int(batch_size)],
 		'weighted_mmd': [weighted_mmd],
 		"balanced_weights": [balanced_weights],
 		'minimize_logits': ["False"],
@@ -61,7 +62,8 @@ def configure_slabs(py0, py1_y0, logit, weighted_mmd, balanced_weights, two_way_
 	return sweep
 
 
-def configure_simple_baseline(py0, py1_y0, weighted, asym_train, clean_back):
+def configure_simple_baseline(py0, py1_y0, weighted, asym_train, batch_size,
+	clean_back):
 	"""Creates hyperparameters for the correlations experiment for baseline.
 
 	Returns:
@@ -69,7 +71,7 @@ def configure_simple_baseline(py0, py1_y0, weighted, asym_train, clean_back):
 	"""
 
 	param_dict = {
-		'random_seed': [i for i in range(20)],
+		'random_seed': [i for i in range(10)],
 		'pflip0': [0.01],
 		'pflip1': [0.01],
 		'py0': [py0],
@@ -82,7 +84,7 @@ def configure_simple_baseline(py0, py1_y0, weighted, asym_train, clean_back):
 		'sigma': [10.0],
 		'alpha': [0.0],
 		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
+		"batch_size": [int(batch_size)],
 		'weighted_mmd': [weighted],
 		"balanced_weights": [weighted],
 		'minimize_logits': ["False"],
@@ -98,8 +100,46 @@ def configure_simple_baseline(py0, py1_y0, weighted, asym_train, clean_back):
 
 	return sweep
 
+def configure_rex(py0, py1_y0, weighted, asym_train, batch_size, clean_back):
+	"""Creates hyperparameters for the correlations experiment for baseline.
 
-def configure_random_augmentation(py0, py1_y0, weighted, asym_train, clean_back):
+	Returns:
+		Iterator with all hyperparameter combinations
+	"""
+
+	param_dict = {
+		'random_seed': [i for i in range(20)],
+		'pflip0': [0.01],
+		'pflip1': [0.01],
+		'py0': [py0],
+		'py1_y0': [py1_y0],
+		'pixel': [128],
+		'l2_penalty': [0.0],
+		'dropout_rate': [0.0],
+		'embedding_dim': [10],
+		'sigma': [10.0],
+		'alpha': [10**6],
+		"architecture": ["pretrained_resnet"],
+		"batch_size": [int(batch_size)],
+		'weighted_mmd': [weighted],
+		"balanced_weights": [weighted],
+		'minimize_logits': ["False"],
+		'clean_back': [clean_back],
+		'rex': [ 'True_norm']
+	}
+	if asym_train:
+		param_dict['asym_train'] =  ['True']
+
+	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
+	keys, values = zip(*param_dict_ordered.items())
+	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
+	print(param_dict)
+
+	return sweep
+
+
+def configure_random_augmentation(py0, py1_y0, weighted, asym_train,
+	batch_size, clean_back):
 	"""Creates hyperparameters for the correlations experiment for baseline.
 
 	Returns:
@@ -119,7 +159,7 @@ def configure_random_augmentation(py0, py1_y0, weighted, asym_train, clean_back)
 		'sigma': [10.0],
 		'alpha': [0.0],
 		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
+		"batch_size": [int(batch_size)],
 		'weighted_mmd': [weighted],
 		"balanced_weights": [weighted],
 		'minimize_logits': ["False"],
@@ -137,7 +177,8 @@ def configure_random_augmentation(py0, py1_y0, weighted, asym_train, clean_back)
 	return sweep
 
 
-def configure_oracle_augmentation(py0, py1_y0, oracle_prop, weighted, asym_train, clean_back):
+def configure_oracle_augmentation(py0, py1_y0, oracle_prop, weighted,
+	asym_train, batch_size, clean_back):
 	"""Creates hyperparameters for the correlations experiment for baseline.
 	Args:
 		aug_prop: float, proportion of training data to use for augmentation
@@ -157,7 +198,7 @@ def configure_oracle_augmentation(py0, py1_y0, oracle_prop, weighted, asym_train
 		'sigma': [10.0],
 		'alpha': [0.0],
 		"architecture": ["pretrained_resnet"],
-		"batch_size": [64],
+		"batch_size": [int(batch_size)],
 		'weighted_mmd': [weighted],
 		"balanced_weights": [weighted],
 		'minimize_logits': ["False"],
@@ -166,18 +207,16 @@ def configure_oracle_augmentation(py0, py1_y0, oracle_prop, weighted, asym_train
 	}
 
 	if asym_train:
-		param_dict['asym_train'] =  ['True']
+		param_dict['asym_train'] = ['True']
 
 	print(param_dict)
 	param_dict_ordered = collections.OrderedDict(sorted(param_dict.items()))
 	keys, values = zip(*param_dict_ordered.items())
 	sweep = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-
 	return sweep
 
 
-def get_sweep(experiment, model, clean_back, oracle_prop=-1.0):
+def get_sweep(experiment, model, batch_size, clean_back, oracle_prop=-1.0):
 	"""Wrapper function, creates configurations based on experiment and model.
 
 	Args:
@@ -192,11 +231,11 @@ def get_sweep(experiment, model, clean_back, oracle_prop=-1.0):
 	implemented_models = [
 		'slabs_weighted', 'slabs_weighted_bal', 'slabs_weighted_bal_two_way',
 		'slabs_warmstart_weighted', 'slabs_warmstart_weighted_bal',
-		'slabs_logit',
+		'slabs_logit', 'slabs_unweighted_two_way',
 		'unweighted_slabs', 'unweighted_slabs_logit',
 		'simple_baseline','weighted_baseline',
 		'oracle_aug', 'weighted_oracle_aug',
-		'random_aug', 'weighted_random_aug']
+		'random_aug', 'weighted_random_aug', 'rex']
 
 	implemented_experiments = ['5090', '5050', '8090', '8050', '8090_asym']
 
@@ -224,65 +263,89 @@ def get_sweep(experiment, model, clean_back, oracle_prop=-1.0):
 	if model == 'slabs_weighted':
 		return configure_slabs(py0, py1_y0, logit='False',
 			weighted_mmd='True', balanced_weights='False', two_way_mmd=False,
-			warmstart=False, asym_train=asym_train, clean_back=clean_back)
+			warmstart=False, asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'slabs_warmstart_weighted':
 		return configure_slabs(py0, py1_y0, logit='False',
-			weighted_mmd='True', balanced_weights= 'False', two_way_mmd=False,
-			warmstart=True, asym_train=asym_train, clean_back=clean_back)
+			weighted_mmd='True', balanced_weights='False', two_way_mmd=False,
+			warmstart=True, asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'slabs_weighted_bal':
 		return configure_slabs(py0, py1_y0, logit='False',
 			weighted_mmd='True', balanced_weights='True', two_way_mmd=False,
-			warmstart=False, asym_train=asym_train, clean_back=clean_back)
+			warmstart=False, asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'slabs_weighted_bal_two_way':
 		return configure_slabs(py0, py1_y0, logit='False',
 			weighted_mmd='True', balanced_weights='True', two_way_mmd=True,
-			warmstart=False, asym_train=asym_train, clean_back=clean_back)
+			warmstart=False, asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
+
+	if model == 'slabs_unweighted_two_way':
+		return configure_slabs(py0, py1_y0, logit='False',
+			weighted_mmd='False', balanced_weights='False', two_way_mmd=True,
+			warmstart=False, asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'slabs_warmstart_weighted_bal':
 		return configure_slabs(py0, py1_y0, logit='False', weighted_mmd='True',
-			balanced_weights= 'True', two_way_mmd=False,
-			warmstart=True, asym_train=asym_train, clean_back=clean_back)
-
+			balanced_weights='True', two_way_mmd=False,
+			warmstart=True, asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'slabs_logit':
 		return configure_slabs(py0, py1_y0, logit='True', weighted_mmd='True',
-			balanced_weights = 'True', two_way_mmd=False,
-			warmstart=False, asym_train=asym_train, clean_back=clean_back)
+			balanced_weights='True', two_way_mmd=False,
+			warmstart=False, asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'unweighted_slabs':
 		return configure_slabs(py0, py1_y0, logit='False',
 			weighted_mmd='False', balanced_weights='False', two_way_mmd=False,
-			warmstart=False,  asym_train=asym_train, clean_back=clean_back)
+			warmstart=False, asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'unweighted_slabs_logit':
 		return configure_slabs(py0, py1_y0, logit='True',
 			weighted_mmd='False', balanced_weights='False', two_way_mmd=False,
-			warmstart=False, asym_train=asym_train, clean_back=clean_back)
+			warmstart=False, asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'simple_baseline':
 		return configure_simple_baseline(py0, py1_y0, weighted='False',
-			asym_train=asym_train, clean_back=clean_back)
+			asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'weighted_baseline':
 		return configure_simple_baseline(py0, py1_y0, weighted='True',
-			asym_train=asym_train, clean_back=clean_back)
+			asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
+
+	if model == 'rex':
+		return configure_rex(py0, py1_y0, weighted='False',
+			asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'random_aug':
 		return configure_random_augmentation(py0, py1_y0, weighted='False',
-			asym_train=asym_train, clean_back=clean_back)
+			asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'weighted_random_aug':
 		return configure_random_augmentation(py0, py1_y0, weighted='True',
-			asym_train=asym_train, clean_back=clean_back)
+			asym_train=asym_train, batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'oracle_aug':
 		return configure_oracle_augmentation(py0, py1_y0, oracle_prop,
-			asym_train=asym_train, weighted='False', clean_back=clean_back)
+			asym_train=asym_train, weighted='False', batch_size=batch_size,
+			clean_back=clean_back)
 
 	if model == 'weighted_oracle_aug':
 		return configure_oracle_augmentation(py0, py1_y0, oracle_prop,
-			asym_train=asym_train, weighted='True', clean_back=clean_back)
+			asym_train=asym_train, weighted='True', batch_size=batch_size,
+			clean_back=clean_back)
 

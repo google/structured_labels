@@ -21,17 +21,20 @@ then produces the main plot.
 import os
 from absl import app
 from absl import flags
-import matplotlib 
+import datetime
+import matplotlib
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pdfCropMargins import crop
+import time
 plt.style.use('tableau-colorblind10')
 
 FLAGS = flags.FLAGS
 flags.DEFINE_float('pval', 0.05, 'Pvalue.')
+flags.DEFINE_integer('batch_size', 64, 'Batch size.')
 flags.DEFINE_string('clean_back', 'True', 'clean or noisy backgrounds.')
 
 
@@ -45,17 +48,25 @@ def get_model_dict(pval, experiment_name, plot_type):
 		del plot_type
 		model_specs = {
 			f'unweighted_slabs_ts{pval}': {
-				'label': r'\textbf{MMD-reg-T}', 'linestyle': 'solid',
+				'label': r'\textbf{MMD-T}', 'linestyle': 'solid',
 				'color': '#006BA4'
 			},
 			'unweighted_slabs_classic': {
-				'label': r'\textbf{MMD-reg-S}', 'linestyle': 'solid',
+				'label': r'\textbf{MMD-S}', 'linestyle': 'solid',
 				'color': '#5F9ED1'
 			},
 
 			'simple_baseline_classic': {
-				'label': r'\textbf{L2-reg-S}', 'linestyle': 'dotted',
+				'label': r'\textbf{L2-S}', 'linestyle': 'dotted',
 				'color': 'black'
+			},
+			# 'rex_classic': {
+			# 	'label': r'\textbf{Rex}', 'linestyle': 'dotted',
+			# 	'color': '#d2b4de'
+			# },
+			f'slabs_unweighted_two_way_ts{pval}': {
+				'label': r'\textbf{cMMD-T}', 'linestyle': 'dotted',
+				'color': '#cc79a7'
 			},
 			'random_aug_classic': {
 				'label': r'\textbf{Rand-Aug-S}', 'linestyle': 'solid',
@@ -68,18 +79,25 @@ def get_model_dict(pval, experiment_name, plot_type):
 	if (experiment_name == "8090") and (plot_type == 'main'):
 		model_specs = {
 			f'slabs_weighted_bal_ts{pval}': {
-				'label': r'\textbf{wMMD-reg-T}', 'linestyle': 'solid',
+				'label': r'\textbf{wMMD-T}', 'linestyle': 'solid',
 				'color': '#C85200'
 			},
 			'simple_baseline_classic': {
-				'label': r'\textbf{L2-reg-S}', 'linestyle': 'dotted',
+				'label': r'\textbf{L2-S}', 'linestyle': 'dotted',
 				'color': 'black'
 			},
 			'weighted_baseline_classic': {
-				'label': r'\textbf{wL2-reg-S}', 'linestyle': 'solid',
+				'label': r'\textbf{wL2-S}', 'linestyle': 'solid',
 				'color': '#ABABAB'
 			},
-
+			# 'rex_classic': {
+			# 	'label': r'\textbf{Rex}', 'linestyle': 'dotted',
+			# 	'color': '#d2b4de'
+			# },
+			f'slabs_unweighted_two_way_ts{pval}': {
+				'label': r'\textbf{cMMD-T}', 'linestyle': 'dotted',
+				'color': '#cc79a7'
+			},
 			'random_aug_classic': {
 				'label': r'\textbf{Rand-Aug-S}', 'linestyle': 'solid',
 				'color': '#5F6B29'
@@ -87,29 +105,30 @@ def get_model_dict(pval, experiment_name, plot_type):
 
 		}
 
+
 	if (experiment_name == "8090") and (plot_type == 'ablation'):
 		model_specs = {
 			f'slabs_weighted_bal_ts{pval}': {
-				'label': r'\textbf{wMMD-reg-T}', 'linestyle': 'solid',
+				'label': r'\textbf{wMMD-T}', 'linestyle': 'solid',
 				'color': '#C85200'
 			},
 
 			f'slabs_weighted_bal_classic': {
-				'label': r'\textbf{wMMD-reg-S}', 'linestyle': 'solid',
+				'label': r'\textbf{wMMD-S}', 'linestyle': 'solid',
 				'color': '#FFBC79'
 			},
 
 			f'unweighted_slabs_ts{pval}': {
-				'label': r'\textbf{MMD-reg-T}', 'linestyle': 'solid',
+				'label': r'\textbf{MMD-T}', 'linestyle': 'solid',
 				'color': '#006BA4'
 			},
 			'unweighted_slabs_classic': {
-				'label': r'\textbf{MMD-reg-S}', 'linestyle': 'solid',
+				'label': r'\textbf{MMD-S}', 'linestyle': 'solid',
 				'color': '#5F9ED1'
 			},
 
 			f'unweighted_slabs_uts{pval}': {
-				'label': r'\textbf{MMD-reg-uT}', 'linestyle': 'solid',
+				'label': r'\textbf{MMD-uT}', 'linestyle': 'solid',
 				'color': '#A2C8EC'
 			},
 
@@ -117,7 +136,7 @@ def get_model_dict(pval, experiment_name, plot_type):
 	if (experiment_name == "8090") and (plot_type == 'oracle'):
 		model_specs = {
 			f'slabs_weighted_bal_ts{pval}': {
-				'label': 'wMMD-reg-T', 'linestyle': 'solid',
+				'label': 'wMMD-T', 'linestyle': 'solid',
 				'color': '#C85200'
 			},
 
@@ -165,7 +184,7 @@ def plot_errorbars(model_to_spec, axis, results, model, metric):
 
 def main(argv):
 	del argv
-	
+
 
 	results_dir = os.path.join(BASE_DIR, 'results')
 	if not os.path.exists(results_dir):
@@ -189,12 +208,19 @@ def main(argv):
 	# --- loop to ploit the first two subplots
 	for axid, experiment_name in enumerate(["8050", "8090"]):
 		model_to_spec = get_model_dict(FLAGS.pval, experiment_name, 'main')
-		
-		# -- collect results 
+
+		# -- collect results
 		res = []
 		for model in model_to_spec.keys():
+			model_file = (f'{BASE_DIR}/final_models/{model}_{experiment_name}_'
+				f'{FLAGS.clean_back}_{FLAGS.batch_size}.csv')
 			try:
-				model_res = pd.read_csv(f'{BASE_DIR}/final_models/{model}_{experiment_name}_{FLAGS.clean_back}.csv')
+				model_res = pd.read_csv(model_file)
+				file_date = time.ctime(os.path.getmtime(model_file))
+				file_date = datetime.datetime.strptime(file_date, "%a %b %d %H:%M:%S %Y")
+				file_date = file_date.strftime('%Y-%m-%d %H:%M:%S')
+				print(f"{model} last modifid: {file_date}")
+
 			except FileNotFoundError as e:
 				print(e)
 				continue
@@ -209,10 +235,10 @@ def main(argv):
 		axes[axid].axvline(py1_y0, linestyle='--', color='black')
 
 		markers = [
-			plt.Line2D([0,0],[0,0], color=model_to_spec[model]['color'], 
+			plt.Line2D([0,0],[0,0], color=model_to_spec[model]['color'],
 				marker='s', linestyle='', markersize=12) for model in available_models
 			]
-		
+
 
 		# ylabels = axes[axid].get_yticks()
 		# ylabels = [f'{lab:.02f}' for lab in ylabels]
@@ -221,7 +247,7 @@ def main(argv):
 
 
 		axes[axid].set_xticks(ticks = [0.2, 0.4, 0.6, 0.8])
-		axes[axid].set_xticklabels(labels = [r'\textbf{0.2}', 
+		axes[axid].set_xticklabels(labels = [r'\textbf{0.2}',
 			r'\textbf{0.4}', r'\textbf{0.6}', r'\textbf{0.8}'])
 
 
@@ -239,11 +265,11 @@ def main(argv):
 			axes[axid].set_yticks(ticks = [0.80, 0.85, 0.90])
 			axes[axid].set_yticklabels(labels = [r'\textbf{0.80}', r'\textbf{0.85}', r'\textbf{0.90}'])
 
-			# axes[axid].legend(markers, [model_to_spec[model]['label'] for model in available_models], 
-			# 	bbox_to_anchor=(0.5, -0.05), loc='lower center', prop={'size': legend_text_size}, 
+			# axes[axid].legend(markers, [model_to_spec[model]['label'] for model in available_models],
+			# 	bbox_to_anchor=(0.5, -0.05), loc='lower center', prop={'size': legend_text_size},
 			# 	ncol=2,  handletextpad=0.05)
-			axes[axid].legend(markers, [model_to_spec[model]['label'] for model in available_models], 
-				bbox_to_anchor=(0.5, 1.0), loc='lower center', prop={'size': legend_text_size}, 
+			axes[axid].legend(markers, [model_to_spec[model]['label'] for model in available_models],
+				bbox_to_anchor=(0.5, 1.0), loc='lower center', prop={'size': legend_text_size},
 				ncol=2,  handletextpad=0.05)
 			axes[axid].set_ylabel(r'\textbf{AUROC}')
 
@@ -251,12 +277,12 @@ def main(argv):
 	# --- plot the ablation study
 	experiment_name = "8090"
 
-	model_to_spec = get_model_dict(FLAGS.pval, experiment_name, 'ablation')	
-	# -- collect results 
+	model_to_spec = get_model_dict(FLAGS.pval, experiment_name, 'ablation')
+	# -- collect results
 	res = []
 	for model in model_to_spec.keys():
 		try:
-			model_res = pd.read_csv(f'{BASE_DIR}/final_models/{model}_{experiment_name}_{FLAGS.clean_back}.csv')
+			model_res = pd.read_csv(f'{BASE_DIR}/final_models/{model}_{experiment_name}_{FLAGS.clean_back}_{FLAGS.batch_size}.csv')
 		except FileNotFoundError as e:
 			print(e)
 			continue
@@ -264,13 +290,13 @@ def main(argv):
 	res = pd.concat(res, axis=0, ignore_index=True, sort=False)
 	available_models = res.model.unique().tolist()
 
-	
+
 	for model in available_models:
 		print(f'plot {model}')
 		plot_errorbars(model_to_spec, axes[-1], res, model, 'auc')
 
 	markers = [
-		plt.Line2D([0,0],[0,0], color=model_to_spec[model]['color'], 
+		plt.Line2D([0,0],[0,0], color=model_to_spec[model]['color'],
 			marker='s', linestyle='', markersize=12) for model in available_models
 		]
 
@@ -279,8 +305,8 @@ def main(argv):
 	# axes[-1].legend(markers, [model_to_spec[model]['label'] for model in available_models],
 	# 	bbox_to_anchor=(0.0, 1), loc='upper left', prop={'size': legend_text_size},
 	# 	ncol=2,  handletextpad=0.05)
-	axes[-1].legend(markers, [model_to_spec[model]['label'] for model in available_models], 
-		bbox_to_anchor=(0.5, 1.0), loc='lower center', prop={'size': legend_text_size}, 
+	axes[-1].legend(markers, [model_to_spec[model]['label'] for model in available_models],
+		bbox_to_anchor=(0.5, 1.0), loc='lower center', prop={'size': legend_text_size},
 		ncol=2,  handletextpad=0.05)
 
 
@@ -296,9 +322,9 @@ def main(argv):
 
 
 	savename = os.path.join(results_dir,
-		f'waterbirds_combined_plot_{FLAGS.pval}_{FLAGS.clean_back}.pdf')
+		f'waterbirds_combined_plot_{FLAGS.pval}_{FLAGS.clean_back}_{FLAGS.batch_size}.pdf')
 	cropped_savename = os.path.join(results_dir,
-		f'waterbirds_combined_plot_{FLAGS.pval}_{FLAGS.clean_back}_cropped.pdf')
+		f'waterbirds_combined_plot_{FLAGS.pval}_{FLAGS.clean_back}_{FLAGS.batch_size}_cropped.pdf')
 
 	plt.tight_layout()
 	plt.savefig(savename)

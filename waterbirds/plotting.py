@@ -31,38 +31,43 @@ plt.style.use('tableau-colorblind10')
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string('experiment_name', '5050', 'Name of the experiment.')
+flags.DEFINE_integer('batch_size', 64, 'Batch size.')
 flags.DEFINE_float('pval', 0.05, 'Pvalue.')
-flags.DEFINE_enum('plot_type', 'main', ['main', 'ablation', 'oracle'], 'which plot?')
+flags.DEFINE_enum('plot_type', 'main', ['main', 'ablation', 'oracle', 'minimal', 'minimal_dnn'], 'which plot?')
 flags.DEFINE_string('clean_back', 'True', 'clean or noisy backgrounds.')
-
-
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 	'waterbirds'))
 
 NUM_WORKERS = 30
-PLOT_ALL = False
-MAIN_PLOT = True
+
 
 def get_model_dict(pval, experiment_name, plot_type):
-	if experiment_name == "8050":
-		del plot_type
+	if (experiment_name == "8050") and (plot_type == 'main'):
 		model_specs = {
 			f'unweighted_slabs_ts{pval}': {
-				'label': 'MMD-reg-T', 'linestyle': 'solid',
+				'label': r'\textbf{MMD-T}', 'linestyle': 'solid',
 				'color': '#006BA4'
 			},
 			'unweighted_slabs_classic': {
-				'label': 'MMD-reg-C', 'linestyle': 'solid',
+				'label': r'\textbf{MMD-S}', 'linestyle': 'solid',
 				'color': '#5F9ED1'
 			},
 
 			'simple_baseline_classic': {
-				'label': 'L2-reg-C', 'linestyle': 'dotted',
+				'label': r'\textbf{L2-S}', 'linestyle': 'dotted',
 				'color': 'black'
 			},
+			'rex_classic': {
+				'label': r'\textbf{Rex}', 'linestyle': 'dotted',
+				'color': '#f0e442'
+			},
+			f'slabs_unweighted_two_way_ts{pval}': {
+				'label': r'\textbf{cMMD-T}', 'linestyle': 'dotted',
+				'color': '#cc79a7'
+			},
 			'random_aug_classic': {
-				'label': 'Rand-Aug-C', 'linestyle': 'solid',
+				'label': r'\textbf{Rand-Aug-S}', 'linestyle': 'solid',
 				'color': '#5F6B29'
 			},
 
@@ -71,49 +76,99 @@ def get_model_dict(pval, experiment_name, plot_type):
 
 	if (experiment_name == "8090") and (plot_type == 'main'):
 		model_specs = {
-			# f'slabs_weighted_bal_ts{pval}': {
-			# 	'label': 'Ours', 'linestyle': 'solid',
-			# 	'color': '#C85200'
-			# },
+			f'slabs_weighted_bal_ts{pval}': {
+				'label': r'\textbf{wMMD-T}', 'linestyle': 'solid',
+				'color': '#C85200'
+			},
 			'simple_baseline_classic': {
-				'label': 'DNN', 'linestyle': 'dotted',
+				'label': r'\textbf{L2-S}', 'linestyle': 'dotted',
 				'color': 'black'
 			},
-			# 'weighted_baseline_classic': {
-			# 	'label': 'wL2-reg-C', 'linestyle': 'solid',
-			# 	'color': '#ABABAB'
-			# },
-
-			# 'random_aug_classic': {
-			# 	'label': 'Rand-Aug-C', 'linestyle': 'solid',
-			# 	'color': '#5F6B29'
-			# },
+			'weighted_baseline_classic': {
+				'label': r'\textbf{wL2-S}', 'linestyle': 'solid',
+				'color': '#ABABAB'
+			},
+			'rex_classic': {
+				'label': r'\textbf{Rex}', 'linestyle': 'dotted',
+				'color': '#f0e442'
+			},
+			f'slabs_unweighted_two_way_ts{pval}': {
+				'label': r'\textbf{cMMD-T}', 'linestyle': 'dotted',
+				'color': '#cc79a7'
+			},
+			'random_aug_classic': {
+				'label': r'\textbf{Rand-Aug-S}', 'linestyle': 'solid',
+				'color': '#5F6B29'
+			},
 
 		}
+
+	if (experiment_name == "8050") and (plot_type == 'minimal'):
+		del plot_type
+		model_specs = {
+			f'unweighted_slabs_ts{pval}': {
+				'label': 'Ours', 'linestyle': 'solid',
+				'color': '#C85200'
+			},
+			'simple_baseline_classic': {
+				'label': 'L2', 'linestyle': 'dotted',
+				'color': 'black'
+			},
+			'random_aug_classic': {
+				'label': 'Rand-Aug', 'linestyle': 'solid',
+				'color': '#5F6B29'
+			},
+		}
+
+	if (experiment_name == "8090") and (plot_type == 'minimal'):
+		model_specs = {
+			f'slabs_weighted_bal_ts{pval}': {
+				'label': 'Ours', 'linestyle': 'solid',
+				'color': '#C85200'
+			},
+			'simple_baseline_classic': {
+				'label': 'L2', 'linestyle': 'dotted',
+				'color': 'black'
+			},
+			'weighted_baseline_classic': {
+				'label': 'w-L2', 'linestyle': 'solid',
+				'color': '#ABABAB'
+			},
+			'random_aug_classic': {
+				'label': 'Augment', 'linestyle': 'solid',
+				'color': '#5F6B29'
+			},
+# 			f'unweighted_slabs_uts{pval}': {
+# 				'label': 'MMD-only', 'linestyle': 'solid',
+# 				'color': '#800080'
+# 			},
+
+		}
+
 
 	if (experiment_name == "8090") and (plot_type == 'ablation'):
 		model_specs = {
 			f'slabs_weighted_bal_ts{pval}': {
-				'label': 'wMMD-reg-T', 'linestyle': 'solid',
+				'label': r'\textbf{wMMD-T}', 'linestyle': 'solid',
 				'color': '#C85200'
 			},
 
 			f'slabs_weighted_bal_classic': {
-				'label': 'wMMD-reg-C', 'linestyle': 'solid',
+				'label': r'\textbf{wMMD-S}', 'linestyle': 'solid',
 				'color': '#FFBC79'
 			},
 
 			f'unweighted_slabs_ts{pval}': {
-				'label': 'MMD-reg-T', 'linestyle': 'solid',
+				'label': r'\textbf{MMD-T}', 'linestyle': 'solid',
 				'color': '#006BA4'
 			},
 			'unweighted_slabs_classic': {
-				'label': 'MMD-reg-C', 'linestyle': 'solid',
+				'label': r'\textbf{MMD-S}', 'linestyle': 'solid',
 				'color': '#5F9ED1'
 			},
 
 			f'unweighted_slabs_uts{pval}': {
-				'label': 'MMD-reg-uT', 'linestyle': 'solid',
+				'label': r'\textbf{MMD-uT}', 'linestyle': 'solid',
 				'color': '#A2C8EC'
 			},
 
@@ -126,15 +181,15 @@ def get_model_dict(pval, experiment_name, plot_type):
 			},
 
 			'oracle_aug_0.1_classic': {
-				'label': 'Or-aug-10\%-C', 'linestyle': 'solid',
+				'label': 'Or-aug-10\%-S', 'linestyle': 'solid',
 				'color': '#945634'
 			},
 			'oracle_aug_0.5_classic': {
-				'label': 'Or-aug-50\%-C', 'linestyle': 'solid',
+				'label': 'Or-aug-50\%-S', 'linestyle': 'solid',
 				'color': '#006BA4'
 			},
 			'oracle_aug_1.0_classic': {
-				'label': 'Or-aug-100\%-C', 'linestyle': 'solid',
+				'label': 'Or-aug-100\%-S', 'linestyle': 'solid',
 				'color': '#a48b00'
 			},
 		}
@@ -215,176 +270,68 @@ def plot_errorclouds(model_to_spec, axis, legend_elements, results, model, metri
 
 def main(argv):
 	del argv
-	model_to_spec = get_model_dict(FLAGS.pval, FLAGS.experiment_name, FLAGS.plot_type)
+	model_to_spec = get_model_dict(FLAGS.pval, FLAGS.experiment_name,
+		FLAGS.plot_type)
 	results_dir = os.path.join(BASE_DIR, 'results')
 	if not os.path.exists(results_dir):
 		os.system(f'mkdir -p {results_dir}')
 
-	if PLOT_ALL:
-		res = []
-		for model in model_to_spec.keys():
-			try:
-				model_res = pd.read_csv(f'{BASE_DIR}/final_models/{model}_{FLAGS.experiment_name}_{FLAGS.clean_back}.csv')
-			except FileNotFoundError as e:
-				print(e)
-				continue
-			res.append(model_res)
-		res = pd.concat(res, axis=0, ignore_index=True, sort=False)
-		available_models = res.model.unique().tolist()
+	res = []
+	for model in model_to_spec:
+		try:
+			model_res = pd.read_csv((f'{BASE_DIR}/final_models/{model}_'
+				f'{FLAGS.experiment_name}_{FLAGS.clean_back}_{FLAGS.batch_size}.csv'))
+		except FileNotFoundError as e:
+			print(e)
+			continue
+		res.append(model_res)
+	res = pd.concat(res, axis=0, ignore_index=True, sort=False)
+	available_models = res.model.unique().tolist()
 
-		_, axes = plt.subplots(1, 2, figsize=(10, 5))
-		legend_elements = []
+	py1_y0 = float(FLAGS.experiment_name[2:]) / 100.0
+	plt.figure(figsize=(7, 5))
+	font = {'size': 14, 'family': 'serif', 'serif': 'Computer Modern Roman'}
+	plt.rc('font', **font)
+	plt.rc('text', usetex=True)
 
-		for model in available_models:
-			print(f'plot {model}')
-			plot_errorbars(model_to_spec, axes[0], legend_elements, res, model, 'auc')
-			plot_errorbars(model_to_spec, axes[1], None, res, model, 'accuracy')
-			# plot_errorbars(model_to_spec, axes[2], None, res, model, 'loss')
+	legend_elements = []
+	for model in available_models:
+		print(f'plot {model}')
+		plot_errorbars(model_to_spec, plt, legend_elements, res, model, 'auc')
 
-		py0 = float(FLAGS.experiment_name[:2]) / 100.0
-		py1_y0 = float(FLAGS.experiment_name[2:]) / 100.0
+	savename = os.path.join(results_dir,
+		(f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_{FLAGS.clean_back}_'
+			f'{FLAGS.batch_size}_{FLAGS.plot_type}.pdf'))
+	cropped_savename = os.path.join(results_dir,
+		(f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_{FLAGS.clean_back}_'
+			f'{FLAGS.batch_size}_{FLAGS.plot_type}_cropped.pdf'))
 
-		axes[0].set_xlabel('Conditional probability in shifted distribution')
-		axes[0].set_ylabel('AUC')
-		axes[0].axvline(py1_y0, linestyle='--', color='black')
-		# axes[0].legend(handles=legend_elements, loc='lower right')
-		axes[1].set_xlabel('Conditional probability in shifted distribution')
-		axes[1].set_ylabel('Accuracy')
-		axes[1].axvline(py1_y0, linestyle='--', color='black')
-		# axes[1].legend(handles=legend_elements, loc='upper left')
-		axes[1].legend(loc='upper left')
-		# axes[2].set_xlabel('Conditional probability in shifted distribution')
-		# axes[2].set_ylabel('Binary cross-entropy (Loss)')
-		# axes[2].axvline(0.95, linestyle='--', color='black')
-		# axes[2].legend(handles=legend_elements, loc='upper right')
-		plt.suptitle(f'P(water bird) = {py0}, P(bird | background) = {py1_y0}')
-		plt.savefig(os.path.join(results_dir,
-			f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_plot.pdf'))
-		plt.clf()
-		plt.close()
+	plt.axvline(py1_y0, linestyle='--', color='black')
+	# if (FLAGS.experiment_name == '8090') and ((FLAGS.plot_type == 'minimal') or (FLAGS.plot_type == 'minimal_dnn')):
+	# 	vline_annotate = (r'P(Water bird $|$ water background)'
+	# 		'\n'
+	# 		r'= P(Land bird $|$ land background) at train time')
 
-	elif MAIN_PLOT:
-		res = []
-		for model in model_to_spec.keys():
-			try:
-				model_res = pd.read_csv(f'{BASE_DIR}/final_models/{model}_{FLAGS.experiment_name}_{FLAGS.clean_back}.csv')
-			except FileNotFoundError as e:
-				print(e)
-				continue
-			res.append(model_res)
-		res = pd.concat(res, axis=0, ignore_index=True, sort=False)
-		available_models = res.model.unique().tolist()
-
-		py1_y0 = float(FLAGS.experiment_name[2:]) / 100.0
-		plt.figure(figsize=(7, 5))
-		font = {'size': 16, 'family': 'serif', 'serif': 'Computer Modern Roman'}
-		plt.rc('font', **font)
-		plt.rc('text', usetex=True)
-
-		legend_elements = []
-		for model in available_models:
-			print(f'plot {model}')
-			plot_errorbars(model_to_spec, plt, legend_elements, res, model, 'auc')
-
-		# savename = os.path.join(results_dir,
-		# 	f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_{FLAGS.clean_back}_{FLAGS.plot_type}.pdf')
-		# cropped_savename = os.path.join(results_dir,
-		# 	f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_{FLAGS.clean_back}_{FLAGS.plot_type}_cropped.pdf')
-
-		savename = os.path.join(results_dir, f'for_alex_dnn.pdf')
-		print(savename)
-		cropped_savename = os.path.join(results_dir, f'cropped_for_alex_dnn.pdf')
-		plt.axvline(py1_y0, linestyle='--', color='black')
-		plt.xlabel(r'P(Water bird $|$ water background) = P(land bird $|$ land background) at test time')
-		plt.ylabel('AUROC')
-		if (FLAGS.experiment_name == '8090') and (FLAGS.plot_type == 'ablation'):
-			plt.legend(bbox_to_anchor=(0.0, 0.55), loc='lower left', prop={'size': 12})
-		elif FLAGS.experiment_name == '8090':
-			plt.legend(bbox_to_anchor=(0.55, 0.01), loc='lower left', prop={'size': 12})
-		else:
-			plt.legend(bbox_to_anchor=(0.7, 0.0), loc='lower left', prop={'size': 12})
-		plt.tight_layout()
-		plt.savefig(savename)
-		plt.clf()
-		plt.close()
-		crop(["-p", "5", savename, "-o", cropped_savename])
-
+	# 	plt.text(0.9, 0.77, vline_annotate,
+	# 		horizontalalignment='center',
+	# 		verticalalignment='center',
+	# 		rotation='vertical',
+	# 		fontsize=9)
+	plt.xlabel(r'P(Water bird $|$ water background) = P(Land bird $|$ land background)'
+						'\n'
+						r'at test time')
+	plt.ylabel('AUROC')
+	if (FLAGS.experiment_name == '8090') and (FLAGS.plot_type == 'ablation'):
+		plt.legend(bbox_to_anchor=(0.0, 0.55), loc='lower left', prop={'size': 12})
+	elif FLAGS.experiment_name == '8090':
+		plt.legend(bbox_to_anchor=(0.55, 0.01), loc='lower left', prop={'size': 12})
 	else:
-		# -- import baseline and ours
-		baseline_res = pd.read_csv(
-			f'{BASE_DIR}/final_models/simple_baseline_classic_per_run.csv'
-		)
-
-		baseline_mean = pd.read_csv(
-			f'{BASE_DIR}/final_models/simple_baseline_classic.csv'
-		)
-		baseline_mean['random_seed'] = -1
-		baseline_mean = baseline_mean[baseline_res.columns.tolist()]
-		baseline_res = pd.concat([baseline_res, baseline_mean], axis=0)
-
-		ours_res = pd.read_csv(
-			f'{BASE_DIR}/final_models/slabs_non_equivalent_per_run.csv'
-		)
-
-		ours_mean = pd.read_csv(
-			f'{BASE_DIR}/final_models/slabs_non_equivalent.csv'
-		)
-
-		ours_mean['random_seed'] = -1
-		ours_mean = ours_mean[ours_res.columns.tolist()]
-		ours_res = pd.concat([ours_res, ours_mean], axis=0)
-
-		# -- start plot
-		font = {'size': 22, 'family': 'serif', 'serif': 'Computer Modern Roman'}
-		plt.rc('font', **font)
-		plt.rc('text', usetex=True)
-		_, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
-
-		# -- plot baseline
-		# baseline_worst = baseline_res[(baseline_res.py1_y0_s == baseline_res.py1_y0_s.max())]
-		# baseline_worst = baseline_worst[
-		# 	(baseline_worst.accuracy_mean == baseline_worst.accuracy_mean.min())
-		# ]
-
-		# baseline_random_seed = baseline_worst.random_seed.values[0]
-		# print(baseline_random_seed)
-		for random_seed in baseline_res.random_seed.unique():
-			res_rs = baseline_res[(baseline_res.random_seed == random_seed)]
-			alpha = 1 if random_seed == -1 else 0.2
-			axes[0].plot(model_to_spec, res_rs.py1_y0_s, res_rs.accuracy_mean, linewidth=1, alpha=alpha, color='black')
-			axes[0].plot(model_to_spec, res_rs.py1_y0_s, res_rs.accuracy_mean, 'o', alpha=alpha, color='black')
-		axes[0].set_xlabel(r'P(Water bird $|$ water background) at test time')
-		axes[0].set_ylabel('Accuracy')
-		axes[0].title.set_text(r'DNN')
-
-		# -- plot ours
-		# ours_worst = ours_res[(ours_res.py1_y0_s == ours_res.py1_y0_s.max())]
-		# ours_worst = ours_worst[
-		# 	(ours_worst.accuracy_mean == ours_worst.accuracy_mean.min())
-		# ]
-		# ours_random_seed = ours_worst.random_seed.values[0]
-
-		for random_seed in ours_res.random_seed.unique():
-			res_rs = ours_res[(ours_res.random_seed == random_seed)]
-			alpha = 1 if random_seed == -1 else 0.2
-			axes[1].plot(model_to_spec, res_rs.py1_y0_s, res_rs.accuracy_mean, linewidth=1, alpha=alpha, color='black')
-			axes[1].plot(model_to_spec, res_rs.py1_y0_s, res_rs.accuracy_mean, 'o', alpha=alpha, color='black')
-		axes[1].set_xlabel(r'P(Water bird $|$ water background) at test time')
-		axes[1].title.set_text(r'iSlabs')
-
-
-		plt.tight_layout()
-
-		savename = os.path.join(results_dir, f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_plot_per_run.pdf')
-
-		cropped_savename = os.path.join(results_dir,
-			f'waterbirds_{FLAGS.experiment_name}_{FLAGS.pval}_plot_per_run_cropped.pdf')
-
-		plt.savefig(savename)
-		plt.clf()
-		plt.close()
-		crop(["-p", "5", savename, "-o", cropped_savename])
-
+		plt.legend(bbox_to_anchor=(0.7, 0.2), loc='lower left', prop={'size': 12})
+	plt.tight_layout()
+	plt.savefig(savename)
+	plt.clf()
+	plt.close()
+	crop(["-p", "5", savename, "-o", cropped_savename])
 
 if __name__ == '__main__':
 	app.run(main)
