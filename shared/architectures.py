@@ -20,233 +20,51 @@ from tensorflow.python.keras import backend
 from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.applications.densenet import DenseNet121
 
-# from tensorflow.keras.layers.experimental import preprocessing
-
-
 def create_architecture(params):
+	# architectures without random augmentation
+	if params['random_augmentation'] == 'False':
+		if params['architecture'] == 'simple':
+			net = SimpleConvolutionNet(
+				dropout_rate=params["dropout_rate"],
+				l2_penalty=params["l2_penalty"],
+				embedding_dim=params["embedding_dim"])
+		if params['architecture'] == 'pretrained_resnet':
+			net = PretrainedResNet50(
+				embedding_dim=params["embedding_dim"],
+				l2_penalty=params["l2_penalty"])
+		if params['architecture'] == 'pretrained_resnet_random':
+			net = RandomResNet50(
+				embedding_dim=params["embedding_dim"],
+				l2_penalty=params["l2_penalty"])
+		if params['architecture'] == 'pretrained_resnet101':
+			net = PretrainedResNet101(
+				embedding_dim=params["embedding_dim"],
+				l2_penalty=params["l2_penalty"])
+		if params['architecture'] == 'pretrained_densenet':
+				net = PretrainedDenseNet121(
+					embedding_dim=params["embedding_dim"],
+					l2_penalty=params["l2_penalty"])
 
-	if params['architecture'] == 'simple':
-		net = SimpleConvolutionNet(
-			dropout_rate=params["dropout_rate"],
-			l2_penalty=params["l2_penalty"],
-			embedding_dim=params["embedding_dim"])
-	elif params['architecture'] == 'pretrained_resnet' and (params['random_augmentation'] == "False"):
-
-		net = PretrainedResNet50(
-			embedding_dim=params["embedding_dim"],
-			l2_penalty=params["l2_penalty"])
-	elif params['architecture'] == 'pretrained_resnet_random':
-		net = RandomResNet50(
-			embedding_dim=params["embedding_dim"],
-			l2_penalty=params["l2_penalty"])
-
-	elif (params['architecture'] == 'pretrained_resnet') and (params['random_augmentation'] == "True"):
-		net = PretrainedResNet50_RandomAugmentation(
-			embedding_dim=params["embedding_dim"],
-			l2_penalty=params["l2_penalty"])
-
-	elif params['architecture'] == 'pretrained_resnet101':
-		net = PretrainedResNet101(
-			embedding_dim=params["embedding_dim"],
-			l2_penalty=params["l2_penalty"])
-
-	elif params['architecture'] == 'from_scratch_resnet':
-		net = ScratchResNet50()
-
-	elif params['architecture'] == 'pretrained_densenet' and (params['random_augmentation'] == "False"):
-		net = PretrainedDenseNet121(
-			embedding_dim=params["embedding_dim"],
-			l2_penalty=params["l2_penalty"])
-
-	elif (params['architecture'] == 'pretrained_densenet') and (params['random_augmentation'] == "True"):
-		net = PretrainedDenseNet121_RandomAugmentation(
-			embedding_dim=params["embedding_dim"],
-			l2_penalty=params["l2_penalty"])
+	# architectures with random augmentataion
+	if params['random_augmentation'] == 'True':
+		if (params['architecture'] == 'pretrained_resnet'):
+			net = PretrainedResNet50_RandomAugmentation(
+				embedding_dim=params["embedding_dim"],
+				l2_penalty=params["l2_penalty"])
+		if (params['architecture'] == 'pretrained_densenet'):
+			net = PretrainedDenseNet121_RandomAugmentation(
+				embedding_dim=params["embedding_dim"],
+				l2_penalty=params["l2_penalty"])
 
 	return net
 
-class ResnetIdentityBlock(tf.keras.Model):
-	def __init__(self, filters, kernel_size=3, stride=1, name=None):
-		# check naming
-		super(ResnetIdentityBlock, self).__init__()
-		bn_axis = 3 if backend.image_data_format() == 'channels_last' else 1
-
-		self.conv1 = tf.keras.layers.Conv2D(filters, 1, strides=stride,
-			name=name + '_1_conv')
-		self.bn1 = tf.keras.layers.BatchNormalization(
-			axis=bn_axis, epsilon=1.001e-5, name=name + '_1_bn')
-		self.relu1 = tf.keras.layers.Activation('relu', name=name + '_1_relu')
-
-		self.conv2 = tf.keras.layers.Conv2D(
-			filters, kernel_size, padding='SAME', name=name + '_2_conv')
-		self.bn2 = tf.keras.layers.BatchNormalization(
-			axis=bn_axis, epsilon=1.001e-5, name=name + '_2_bn')
-		self.relu2 = tf.keras.layers.Activation('relu', name=name + '_2_relu')
-
-		self.conv3 = tf.keras.layers.Conv2D(4 * filters, 1, name=name + '_3_conv')
-		self.bn3 = tf.keras.layers.BatchNormalization(
-			axis=bn_axis, epsilon=1.001e-5, name=name + '_3_bn')
-
-		self.add = tf.keras.layers.Add(name=name + '_add') #([shortcut, x])
-		self.relu_out = tf.keras.layers.Activation('relu', name=name + '_out')
-
-	@tf.function
-	def call(self, input_tensor, training=False):
-		x = self.conv1(input_tensor)
-		x = self.bn1(x, training=training)
-		x = self.relu1(x)
-
-		x = self.conv2(x)
-		x = self.bn2(x, training=training)
-		x = self.relu2(x)
-
-		x = self.conv3(x)
-		x = self.bn3(x, training=training)
-
-		x = self.add([input_tensor, x])
-		x = self.relu_out(x)
-		return x
-
-class ResnetConvBlock(tf.keras.Model):
-	def __init__(self, filters, kernel_size=3, stride=1, name=None):
-		# check naming
-		super(ResnetConvBlock, self).__init__()
-		bn_axis = 3 if backend.image_data_format() == 'channels_last' else 1
-
-		self.conv0 = tf.keras.layers.Conv2D(
-			4 * filters, 1, strides=stride, name=name + '_0_conv')
-		self.bn0 = tf.keras.layers.BatchNormalization(
-			axis=bn_axis, epsilon=1.001e-5, name=name + '_0_bn')
-
-		self.conv1 = tf.keras.layers.Conv2D(filters, 1, strides=stride,
-			name=name + '_1_conv')
-		self.bn1 = tf.keras.layers.BatchNormalization(
-			axis=bn_axis, epsilon=1.001e-5, name=name + '_1_bn')
-		self.relu1 = tf.keras.layers.Activation('relu', name=name + '_1_relu')
-
-		self.conv2 = tf.keras.layers.Conv2D(
-			filters, kernel_size, padding='SAME', name=name + '_2_conv')
-		self.bn2 = tf.keras.layers.BatchNormalization(
-			axis=bn_axis, epsilon=1.001e-5, name=name + '_2_bn')
-		self.relu2 = tf.keras.layers.Activation('relu', name=name + '_2_relu')
-
-		self.conv3 = tf.keras.layers.Conv2D(4 * filters, 1, name=name + '_3_conv')
-		self.bn3 = tf.keras.layers.BatchNormalization(
-			axis=bn_axis, epsilon=1.001e-5, name=name + '_3_bn')
-
-		self.add = tf.keras.layers.Add(name=name + '_add') #([shortcut, x])
-		self.relu_out = tf.keras.layers.Activation('relu', name=name + '_out')
-
-	@tf.function
-	def call(self, input_tensor, training=False):
-		x_conv = self.conv0(input_tensor)
-		x_conv = self.bn0(x_conv, training=training)
-
-		x = self.conv1(input_tensor)
-		x = self.bn1(x, training=training)
-		x = self.relu1(x)
-
-		x = self.conv2(x)
-		x = self.bn2(x, training=training)
-		x = self.relu2(x)
-
-		x = self.conv3(x)
-		x = self.bn3(x, training=training)
-
-		x = self.add([x_conv, x])
-		x = self.relu_out(x)
-		return x
-
-
-class ResnetStack(tf.keras.Model):
-	def __init__(self, filters, blocks, stride=1, name=None):
-		# check naming
-		super(ResnetStack, self).__init__()
-		self.blocks = blocks
-
-		self.block1 = ResnetConvBlock(filters=filters, stride=stride,
-			name=name + '_block1')
-		self.block2 = ResnetIdentityBlock(filters=filters, stride=stride,
-			name=name + '_block2')
-		self.block3 = ResnetIdentityBlock(filters=filters, stride=stride,
-			name=name + '_block3')
-
-		if blocks > 3:
-			self.block4 = ResnetIdentityBlock(filters=filters, stride=stride,
-				name=name + '_block4')
-
-		if blocks == 6:
-			self.block5 = ResnetIdentityBlock(filters=filters, stride=stride,
-				name=name + '_block5')
-			self.block6 = ResnetIdentityBlock(filters=filters, stride=stride,
-				name=name + '_block6')
-
-	@tf.function
-	def call(self, input_tensor, training=False):
-		x = self.block1(input_tensor, training)
-		x = self.block2(x, training)
-		x = self.block3(x, training)
-
-		if self.blocks > 3:
-			x = self.block4(x, training)
-		if self.blocks == 6:
-			x = self.block5(x, training)
-			x = self.block6(x, training)
-		return x
-
-
-class ScratchResNet50(tf.keras.Model):
-	"""Simple architecture with convolutions + max pooling."""
-
-	def __init__(self):
-		super(ScratchResNet50, self).__init__()
-
-		bn_axis = 3 if backend.image_data_format() == 'channels_last' else 1
-
-		self.conv1_pad = tf.keras.layers.ZeroPadding2D(
-			padding=((3, 3), (3, 3)), name='conv1_pad')
-		self.conv1_conv = tf.keras.layers.Conv2D(64, 7,
-			strides=2, use_bias=True, name='conv1_conv')
-		self.conv1_bn = tf.keras.layers.BatchNormalization(
-			axis=bn_axis, epsilon=1.001e-5, name='conv1_bn')
-		self.conv1_relu = tf.keras.layers.Activation('relu',
-			name='conv1_relu')
-
-		self.pool1_pad = tf.keras.layers.ZeroPadding2D(
-			padding=((1, 1), (1, 1)), name='pool1_pad')
-		self.pool1_pool = tf.keras.layers.MaxPooling2D(3,
-			strides=2, name='pool1_pool')
-
-		self.stack1 = ResnetStack(64, 3, stride=1, name='conv2')
-		self.stack2 = ResnetStack(128, 4, name='conv3')
-		self.stack3 = ResnetStack(256, 6, name='conv4')
-		self.stack4 = ResnetStack(512, 3, name='conv5')
-
-		self.avg_pool = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')
-		self.dense = tf.keras.layers.Dense(1)
-
-	@tf.function
-	def call(self, inputs, training=False):
-
-		x = self.conv1_pad(inputs)
-		x = self.conv1_conv(x)
-		x = self.conv1_bn(x, training)
-		x = self.conv1_relu(x)
-		x = self.pool1_pad(x)
-		x = self.pool1_pool(x)
-		x = self.stack1(x, training)
-		x = self.stack2(x, training)
-		x = self.stack3(x, training)
-		x = self.stack4(x, training)
-		x = self.avg_pool(x)
-		return self.dense(x), x
-
-
 class PretrainedResNet50(tf.keras.Model):
-	"""Simple architecture with convolutions + max pooling."""
+	"""Resnet 50 pretrained on imagenet."""
 
-	def __init__(self, embedding_dim=10, l2_penalty=0.0,
+	def __init__(self, embedding_dim=-1, l2_penalty=0.0,
 		l2_penalty_last_only=False):
+		# Note: if embedding_dim = -1, the embedding dimension is decided
+		# based on the architecture (2048 for resnet)
 		super(PretrainedResNet50, self).__init__()
 		self.embedding_dim = embedding_dim
 
@@ -259,8 +77,7 @@ class PretrainedResNet50(tf.keras.Model):
 			for layer in self.resenet.layers:
 				if hasattr(layer, 'kernel'):
 					self.add_loss(lambda layer=layer: regularizer(layer.kernel))
-		# TODO fix this
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			self.embedding = tf.keras.layers.Dense(self.embedding_dim,
 				kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
 		self.dense = tf.keras.layers.Dense(1,
@@ -270,17 +87,19 @@ class PretrainedResNet50(tf.keras.Model):
 	def call(self, inputs, training=False):
 		x = self.resenet(inputs, training)
 		x = self.avg_pool(x)
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			x = self.embedding(x)
 		return self.dense(x), x
 
 
 class PretrainedResNet50_RandomAugmentation(tf.keras.Model):
-	"""Simple architecture with convolutions + max pooling."""
+	"""Resnet 50 pretrained on imagenet with random augmentation"""
 
-	def __init__(self, embedding_dim=10, l2_penalty=0.0,
+	def __init__(self, embedding_dim=-1, l2_penalty=0.0,
 		l2_penalty_last_only=False):
 		super(PretrainedResNet50_RandomAugmentation, self).__init__()
+		# Note: if embedding_dim = -1, the embedding dimension is decided
+		# based on the architecture (2048 for resnet)
 		self.embedding_dim = embedding_dim
 
 		self.data_augmentation = tf.keras.Sequential([
@@ -297,8 +116,7 @@ class PretrainedResNet50_RandomAugmentation(tf.keras.Model):
 			for layer in self.resenet.layers:
 				if hasattr(layer, 'kernel'):
 					self.add_loss(lambda layer=layer: regularizer(layer.kernel))
-		# TODO fix this
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			self.embedding = tf.keras.layers.Dense(self.embedding_dim,
 				kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
 		self.dense = tf.keras.layers.Dense(1,
@@ -312,14 +130,14 @@ class PretrainedResNet50_RandomAugmentation(tf.keras.Model):
 			x = inputs
 		x = self.resenet(inputs, training)
 		x = self.avg_pool(x)
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			x = self.embedding(x)
 		return self.dense(x), x
 
 class RandomResNet50(tf.keras.Model):
 	"""Randomly initialized resnet 50."""
 
-	def __init__(self, embedding_dim=10, l2_penalty=0.0):
+	def __init__(self, embedding_dim=-1, l2_penalty=0.0):
 		super(RandomResNet50, self).__init__()
 		self.embedding_dim = embedding_dim
 		self.resenet = ResNet50(include_top=False, layers=tf.keras.layers,
@@ -330,8 +148,7 @@ class RandomResNet50(tf.keras.Model):
 		for layer in self.resenet.layers:
 			if hasattr(layer, 'kernel'):
 				self.add_loss(lambda layer=layer: regularizer(layer.kernel))
-		# TODO fix this
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			self.embedding = tf.keras.layers.Dense(self.embedding_dim,
 				kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
 		self.dense = tf.keras.layers.Dense(1,
@@ -341,17 +158,15 @@ class RandomResNet50(tf.keras.Model):
 	def call(self, inputs, training=False):
 		x = self.resenet(inputs, training)
 		x = self.avg_pool(x)
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			x = self.embedding(x)
 		return self.dense(x), x
 
 
-
-
 class PretrainedDenseNet121(tf.keras.Model):
-	"""pretrained Densenet architecture."""
+	"""Densenet121 pretrained on imagenet."""
 
-	def __init__(self, embedding_dim=10, l2_penalty=0.0,
+	def __init__(self, embedding_dim=-1, l2_penalty=0.0,
 		l2_penalty_last_only=False):
 		super(PretrainedDenseNet121, self).__init__()
 		self.embedding_dim = embedding_dim
@@ -364,8 +179,7 @@ class PretrainedDenseNet121(tf.keras.Model):
 			for layer in self.densenet.layers:
 				if hasattr(layer, 'kernel'):
 					self.add_loss(lambda layer=layer: regularizer(layer.kernel))
-		# TODO fix this
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			self.embedding = tf.keras.layers.Dense(self.embedding_dim,
 				kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
 		self.dense = tf.keras.layers.Dense(1,
@@ -375,16 +189,16 @@ class PretrainedDenseNet121(tf.keras.Model):
 	def call(self, inputs, training=False):
 		x = self.densenet(inputs, training)
 		x = self.avg_pool(x)
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			x = self.embedding(x)
 		return self.dense(x), x
 
 
 
 class PretrainedDenseNet121_RandomAugmentation(tf.keras.Model):
-	"""Simple architecture with convolutions + max pooling."""
+	"""Densenet121 pretrained on imagenet with random augmentataions"""
 
-	def __init__(self, embedding_dim=10, l2_penalty=0.0,
+	def __init__(self, embedding_dim=-1, l2_penalty=0.0,
 		l2_penalty_last_only=False):
 		super(PretrainedDenseNet121_RandomAugmentation, self).__init__()
 		self.embedding_dim = embedding_dim
@@ -403,7 +217,7 @@ class PretrainedDenseNet121_RandomAugmentation(tf.keras.Model):
 				if hasattr(layer, 'kernel'):
 					self.add_loss(lambda layer=layer: regularizer(layer.kernel))
 		# TODO fix this
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			self.embedding = tf.keras.layers.Dense(self.embedding_dim,
 				kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
 		self.dense = tf.keras.layers.Dense(1,
@@ -417,16 +231,16 @@ class PretrainedDenseNet121_RandomAugmentation(tf.keras.Model):
 			x = inputs
 		x = self.densenet(inputs, training)
 		x = self.avg_pool(x)
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			x = self.embedding(x)
 		return self.dense(x), x
 
 
 
 class PretrainedResNet101(tf.keras.Model):
-	"""pretrained resent 101"""
+	"""resent 101 pretrained on imagenet"""
 
-	def __init__(self, embedding_dim=10, l2_penalty=0.0):
+	def __init__(self, embedding_dim=-1, l2_penalty=0.0):
 		super(PretrainedResNet101, self).__init__()
 		self.embedding_dim = embedding_dim
 		self.resenet = tf.keras.applications.ResNet101(include_top=False,
@@ -437,8 +251,7 @@ class PretrainedResNet101(tf.keras.Model):
 		for layer in self.resenet.layers:
 			if hasattr(layer, 'kernel'):
 				self.add_loss(lambda layer=layer: regularizer(layer.kernel))
-		# TODO fix this
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			self.embedding = tf.keras.layers.Dense(self.embedding_dim,
 				kernel_regularizer=tf.keras.regularizers.l2(l2_penalty))
 		self.dense = tf.keras.layers.Dense(1,
@@ -448,7 +261,7 @@ class PretrainedResNet101(tf.keras.Model):
 	def call(self, inputs, training=False):
 		x = self.resenet(inputs, training)
 		x = self.avg_pool(x)
-		if self.embedding_dim != 10:
+		if self.embedding_dim != -1:
 			x = self.embedding(x)
 		return self.dense(x), x
 
@@ -458,7 +271,6 @@ class SimpleConvolutionNet(tf.keras.Model):
 
 	def __init__(self, dropout_rate=0.0, l2_penalty=0.0, embedding_dim=1000):
 		super(SimpleConvolutionNet, self).__init__()
-		# self.scale = preprocessing.Rescaling(1.0 / 255)
 		self.conv1 = tf.keras.layers.Conv2D(32, 3, activation="relu")
 		self.conv2 = tf.keras.layers.Conv2D(64, 3, activation="relu")
 		self.maxpool1 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
