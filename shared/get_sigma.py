@@ -24,16 +24,11 @@ from scipy import stats
 from shared import train_utils
 import multiprocessing
 import tqdm
-# import random
+import pickle
 tf.autograph.set_verbosity(0)
-
-
 
 import waterbirds.data_builder as wb
 import chexpert.data_builder as chx
-import cmnist.data_builder as cm
-
-import shared.utils as utils
 from shared import evaluation_metrics
 
 
@@ -49,12 +44,12 @@ def get_last_saved_model(estimator_dir):
 	return model
 
 
-def get_data_waterbirds(kfolds, random_seed, clean_back, py0, py1_y0, pixel, pflip0):
+def get_data_waterbirds(kfolds, random_seed, clean_back, py0, py1_y0, pixel, pflip0, data_dir):
 	if clean_back == 'False':
-		experiment_directory = (f'/data/ddmg/slabs/waterbirds/experiment_data/'
+		experiment_directory = (f'{data_dir}/experiment_data/'
 			f'rs{random_seed}_py0{py0}_py1_y0{py1_y0}_pfilp{pflip0}')
 	else:
-		experiment_directory = (f'/data/ddmg/slabs/waterbirds/experiment_data/'
+		experiment_directory = (f'{data_dir}/experiment_data/'
 			f'cleanback_rs{random_seed}_py0{py0}_py1_y0{py1_y0}_pfilp{pflip0}')
 
 	_, valid_data, _, _ = wb.load_created_data(
@@ -69,17 +64,17 @@ def get_data_waterbirds(kfolds, random_seed, clean_back, py0, py1_y0, pixel, pfl
 	return valid_dataset
 
 
-def get_data_chexpert(kfolds, random_seed, skew_train, pixel):
+def get_data_chexpert(kfolds, random_seed, skew_train, pixel, data_dir):
 
-	experiment_directory = (f'/data/ddmg/slabs/chexpert/experiment_data/rs{random_seed}')
+	experiment_directory = (f'{data_dir}/experiment_data/rs{random_seed}')
 
 	_, valid_data, _ = chx.load_created_data(
 		experiment_directory=experiment_directory, skew_train=skew_train)
 	map_to_image_label_given_pixel = functools.partial(chx.map_to_image_label,
 		pixel=pixel)
-	# to avoid running running into OOM issues
-	if len(valid_data) > 1000:
-		valid_data = sample(valid_data, 1000)
+	# if you run into oom issues, uncomment the following lines
+	# if len(valid_data) > 1000:
+	# 	valid_data = sample(valid_data, 1000)
 
 	valid_dataset = tf.data.Dataset.from_tensor_slices(valid_data)
 	valid_dataset = valid_dataset.map(map_to_image_label_given_pixel, num_parallel_calls=1)
@@ -88,27 +83,19 @@ def get_data_chexpert(kfolds, random_seed, skew_train, pixel):
 	return valid_dataset
 
 
-def get_optimal_sigma_for_run(config, kfolds, weighted_xv):
+def get_optimal_sigma_for_run(model_dir, kfolds, weighted_xv, dataset, data_dir):
+	config = pickle.load(open(f'{model_dir}/config.pkl', "rb"))
 	# -- get the dataset
-	# print("get data")
-	if 'skew_train' in config.keys():
+	if dataset == 'chexpert':
 		valid_dataset = get_data_chexpert(kfolds, config['random_seed'], config['skew_train'],
-			config['pixel'])
-		base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
-			'chexpert'))
+			config['pixel'], data_dir)
 
-	elif 'clean_back' in config.keys():
+	elif dataset == 'waterbirds':
 		valid_dataset = get_data_waterbirds(kfolds, config['random_seed'], config['clean_back'],
-			config['py0'], config['py1_y0'], config['pixel'], config['pflip0'])
-		base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
-			'waterbirds'))
-
-	# -- get the hash directory where the model lives
-	hash_string = utils.config_hasher(config)
-	hash_dir = os.path.join(base_dir, 'tuning', hash_string, 'saved_model')
+			config['py0'], config['py1_y0'], config['pixel'], config['pflip0'], data_dir)
 
 	# -- get model
-	model = get_last_saved_model(hash_dir)
+	model = get_last_saved_model(os.path.join(model_dir, 'saved_model'))
 
 	# -- set parameters for calculating the mmd
 	params = {
@@ -119,8 +106,6 @@ def get_optimal_sigma_for_run(config, kfolds, weighted_xv):
 		'alpha': config['alpha'],
 		'label_ind': 0}
 
-	if weighted_xv == 'weighted':
-		params['weighted_mmd'] = 'True'
 	if weighted_xv == 'weighted_bal':
 		params['weighted_mmd'] = 'True'
 		params['balanced_weights'] = 'True'
@@ -135,7 +120,6 @@ def get_optimal_sigma_for_run(config, kfolds, weighted_xv):
 
 		logits = model(tf.convert_to_tensor(x))['logits']
 		zpred = model(tf.convert_to_tensor(x))['embedding']
-
 
 		metric_value = evaluation_metrics.get_mmd_at_sigmas([config['sigma']], labels, logits,
 			zpred, sample_weights, sample_weights_pos, sample_weights_neg, params, True)
@@ -155,23 +139,27 @@ def get_optimal_sigma_for_run(config, kfolds, weighted_xv):
 	return curr_results
 
 
-def get_diff_to_best_pred_loss(x, kfolds):
-	fold_pred_loss_cols = [f'pred_loss_{fold_id}' for fold_id in range(kfolds)]
-	metric_values = x.loc[fold_pred_loss_cols].tolist()
+def get_optimal_sigma(all_model_dir, kfolds, weighted_xv, dataset, data_dir):
+	"""Function that gets the optimal sigma for each replication.
+	Args: 
+		all_model_dir: list of all the directories that have the saved models, and 
+			their corresponding config.pkl files 
+		kfolds: number of subgroups to divide the validation set into to estimated
+			the variance of the MMD 
+		weighted_xv: if = 'weighted_bal', it will do the cross validation using 
+			weighted metrics as descibed in the cross validation section of the paper. 
+			if not specified, it will do the weighted scheme if the model is weighted, 
+			and unweighted if the model is unweighted. 
+		dataset: either waterbirds or chexpert.
+		data_dir: the directory which has all the individual experiment data
+	"""
 
-	fold_best_loss_cols = [f'best_{col}' for col in fold_pred_loss_cols]
-	best_loss = x.loc[fold_best_loss_cols]
-
-	return stats.ttest_ind(metric_values, best_loss)[1]
-
-
-def get_optimal_sigma(all_config, kfolds, weighted_xv):
 	all_results = []
 	runner_wrapper = functools.partial(get_optimal_sigma_for_run, kfolds=kfolds,
-		weighted_xv=weighted_xv)
+		weighted_xv=weighted_xv, dataset=dataset, data_dir=data_dir)
 
 	pool = multiprocessing.Pool(20)
-	for results in tqdm.tqdm(pool.imap_unordered(runner_wrapper, all_config), total=len(all_config)):
+	for results in tqdm.tqdm(pool.imap_unordered(runner_wrapper, all_model_dir), total=len(all_model_dir)):
 		all_results.append(results)
 
 	all_results = pd.concat(all_results, axis=0, ignore_index=True)

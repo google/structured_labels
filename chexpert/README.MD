@@ -7,6 +7,7 @@ python -m chexpert.cohort_creation \
 --chexpert_directory /path/to/downloaded_chexpert \
 --save_directory /path/to/where_to_save_file
 ```
+*Note*: the code assumes that `/path/to/where_to_save_file` will have a pickle file called config.pkl that has all the parameters of the model. This is relavent for cross validation. 
 
 ## Step 1:
 In `chexpert/data_builder.py` modify the `DATA_DIR` to the path where you saved the created cohort from step0, and modify `MAIN_DIR` to be the path where the chexpert data is downloaded.
@@ -25,4 +26,15 @@ python -m chexpert.main --alpha 10.0 --architecture pretrained_densenet \
 This will run the model with alpha (i.e., the MMD penalty) = 10.0, sigma (i.e., MMD kernel) = 10.0, using a weighted_mmd (i.e., using our weighting scheme described in the paper).
 
 ## Step 3:
-To cross-validate
+To cross-validate, run 
+```bash 
+python -m shared.cross_validation \
+	--results_file /path/to/csv_with_all_results.csv \
+	--all_model_dir '/path/to/saved_model_1,/path_to_saved_model_2' \
+	--hparams 'embedding_dim,alpha,sigma,l2_penalty,dropout_rate' \
+	--weighted_xv 'weighted_bal'  \
+	--dataset  'chexpert'\
+	--data_dir /path/to/place_where_experiment_data_is/ \
+	--pval 0.05 \
+	--kfolds  3
+```

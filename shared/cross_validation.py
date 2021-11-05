@@ -11,8 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" Cross validation algorithms for slabs and benchmarks. """
-
+""" Classical and two step cross validation algorithms. """
+import argparse
 import functools
 import logging
 import multiprocessing
@@ -25,65 +25,10 @@ from scipy.stats import ttest_ind_from_stats as ttest
 from scipy.stats import ttest_1samp
 import tqdm
 
-from shared.utils import config_hasher, tried_config_file
 from shared import get_sigma
 
 np.set_printoptions(suppress=True)
 np.set_printoptions(precision=3)
-
-NUM_WORKERS = 10
-
-
-def import_helper(config, base_dir):
-	"""Imports the dictionary with the results of an experiment.
-
-	Args:
-		args: tuple with model, config where
-			model: str, name of the model we're importing the performance of
-			config: dictionary, expected to have the following: exp_dir, the experiment
-				directory random_seed,  random seed for the experiment py1_y0_s,
-				probability of y1=1| y0=1 in the shifted test distribution alpha,
-				MMD/cross prediction penalty sigma,  kernel bandwidth for the MMD penalty
-				l2_penalty,  regularization parameter dropout_rate,  drop out rate
-				embedding_dim,  dimension of the final representation/embedding
-				unused_kwargs, other key word args passed to xmanager but not needed here
-
-	Returns:
-		pandas dataframe of results if the file was found, none otherwise
-	"""
-	if config is None:
-		return
-	hash_string = config_hasher(config)
-	hash_dir = os.path.join(base_dir, 'tuning', hash_string)
-	performance_file = os.path.join(hash_dir, 'performance.pkl')
-
-	if not os.path.exists(performance_file):
-		logging.error('Couldnt find %s', performance_file)
-		return None
-
-	results_dict = pickle.load(open(performance_file, 'rb'))
-	results_dict.update(config)
-
-	if 'chexpert' in base_dir:
-		results_dict['pflip0'] = 0.0
-		results_dict['pflip1'] = 0.0
-		results_dict['clean_back'] = 'NA'
-		results_dict['py0'] = 'NA'
-		results_dict['py1_y0'] = 'NA'
-	if 'mnist' in base_dir:
-		results_dict['clean_back'] = 'NA'
-	results_dict['hash'] = hash_string
-	return pd.DataFrame(results_dict, index=[0])
-
-def import_results(configs, base_dir):
-	import_helper_wrapper = functools.partial(import_helper, base_dir=base_dir)
-	pool = multiprocessing.Pool(NUM_WORKERS)
-	res = []
-	for config_res in tqdm.tqdm(pool.imap_unordered(import_helper_wrapper,
-		configs), total=len(configs)):
-		res.append(config_res)
-	res = pd.concat(res, axis=0, ignore_index=True, sort=False)
-	return res, configs
 
 def reshape_results(results):
 	shift_columns = [col for col in results.columns if 'shift' in col]
@@ -115,21 +60,36 @@ def reshape_results(results):
 	print(results_final)
 	return results_final
 
+def get_optimal_model_two_step(results_file, all_model_dir, hparams, 
+	weighted_xv, dataset, data_dir, pval=0.05, kfolds=3):
+	"""This function does the two step cross-validation procedure outlined in the paper.
+	Args: 
+		all_results: a pandas dataframe that containes columns of hyperparameters, and the 
+			corresponding 
+		all_model_dir: a list of all the saved model directories. Code assumes that these 
+			directories also include the config.pkl file (see readme)
+		hparams: a list of the column names that have the hyperparams we're
+			cross-validating over
+		weighted_xv: if = 'weighted_bal', it will do the cross validation using 
+			weighted metrics as descibed in the cross validation section of the paper. 
+			if not specified, it will do the weighted scheme if the model is weighted, 
+			and unweighted if the model is unweighted. 
+		dataset: either waterbirds or chexpert.
+		data_dir: the directory which has all the individual experiment data
+		pval: the p-value above which we reject the null hypothesis that MMD = 0. Lower 
+			values prioritize robustness (i.e., lower MMD) over accuracy
+		kfolds: number of subgroups to divide the validation set into to estimated
+			the variance of the MMD 
+	"""
+	# split all_models_dir 
+	all_model_dir = all_model_dir.split(',')
+	# split hparams 
+	hparams = hparams.split(',')
 
-def get_optimal_model_results(mode, configs, base_dir, hparams,
-	equivalent=True, weighted_xv=False, pval=0.1):
-	if mode not in ['classic', 'two_step']:
-		raise NotImplementedError('Can only run classic or two_step modes')
-	if mode == 'classic':
-		return get_optimal_model_classic(configs, None, base_dir, hparams)
-	elif mode =='two_step':
-		return get_optimal_model_two_step(configs, base_dir, hparams, weighted_xv, pval)
+	all_results = pd.read_csv(results_file)
+	sigma_results = get_sigma.get_optimal_sigma(all_model_dir, kfolds=kfolds,
+		weighted_xv=weighted_xv, dataset=dataset, data_dir=data_dir)
 
-
-def get_optimal_model_two_step(all_results, base_dir, hparams, weighted_xv, pval):
-	all_results, available_configs = import_results(configs, base_dir)
-	sigma_results = get_sigma.get_optimal_sigma(available_configs, kfolds=3,
-		weighted_xv=weighted_xv)
 	best_pval = sigma_results.groupby('random_seed').pval.max()
 	best_pval = best_pval.to_frame()
 	best_pval.reset_index(inplace=True, drop=False)
@@ -150,7 +110,6 @@ def get_optimal_model_two_step(all_results, base_dir, hparams, weighted_xv, pval
 		((filtered_results.best_pval < pval) &  (filtered_results.mmd == filtered_results.smallest_mmd)))
 		]
 
-
 	best_pval_by_seed = filtered_results[['random_seed', 'pval']].copy()
 	best_pval_by_seed = best_pval_by_seed.groupby('random_seed').pval.min()
 
@@ -160,14 +119,15 @@ def get_optimal_model_two_step(all_results, base_dir, hparams, weighted_xv, pval
 	unique_filtered_results = filtered_results[['random_seed', 'sigma', 'alpha']].copy()
 	unique_filtered_results.drop_duplicates(inplace=True)
 
-	return get_optimal_model_classic(None, filtered_results, base_dir, hparams)
+	return get_optimal_model_classic(None, filtered_results, hparams)
 
-def get_optimal_model_classic(all_results, filtered_results, base_dir, hparams):
-	if ((all_results is None) and (filtered_results is None)):
-		raise ValueError("Need either filtered results or table of full results")
-
-	if all_results is None:
+def get_optimal_model_classic(results_file, filtered_results, hparams):
+	if ((results_file is None) and (filtered_results is None)):
+		raise ValueError("Need either filtered results or location of full results")
+	elif results_file is None:
 		all_results = filtered_results.copy()
+	else: 
+		all_results = pd.read_csv(results_file)
 
 	columns_to_keep = hparams + ['random_seed', 'validation_pred_loss']
 	best_loss = all_results[columns_to_keep]
@@ -199,3 +159,59 @@ def get_optimal_model_classic(all_results, filtered_results, base_dir, hparams):
 	final_results_clean = reshape_results(final_results)
 
 	return final_results_clean, optimal_configs
+
+
+if __name__=="__main__":
+	parser = argparse.ArgumentParser()
+
+	parser.add_argument('--results_file', '-results_file',
+		help=("Pointer to the CSV file that has the results from"
+		"cross validation"),
+		type=str)
+
+	parser.add_argument('--all_model_dir', '-all_model_dir',
+		help=("comma separated list of all the directories "
+			" that have the saved models and the config files"),
+		type=str)
+
+	parser.add_argument('--hparams', '-hparams',
+		help=("comma separated list of the column names "
+			"of the hyperparameter columsn in the CSV file"),
+		type=str)
+
+	parser.add_argument('--weighted_xv', '-weighted_xv',
+		default='None',
+		choices=['None', 'weighted_bal'],
+		help=("Should we weight the cross validation metrics?"
+			"This will follow the model hyperparameters if"
+			"None is specified (i.e., if model is weigted, it"
+			"will do weighted xv. If weighted_bal is"
+			"specified, it will use the weights specified in"
+			"the paper."),
+		type=str)
+
+	parser.add_argument('--dataset', '-dataset',
+		default='waterbirds',
+		choices=['waterbirds', 'chexpert'],
+		help=("Which dataset?"),
+		type=str)
+
+	parser.add_argument('--data_dir', '-data_dir',
+		help=("Directory that has all the experiment data"),
+		type=str)
+
+	parser.add_argument('--pval', '-pval',
+		default=0.05,
+		help=("the p-value above which we reject the null "
+			"hypothesis that MMD = 0. Lower values prioritize"
+			" robustness (i.e., lower MMD) over accuracy"),
+		type=float)
+
+	parser.add_argument('--kfolds', '-kfolds',
+		default=3,
+		help=("number of subgroups to divide the validation"
+		" set into to estimated the variance of the MMD"),
+		type=int)
+
+	args = vars(parser.parse_args())
+	get_optimal_model_two_step(**args)
