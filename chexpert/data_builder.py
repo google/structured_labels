@@ -20,24 +20,8 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-DATA_DIR = '/data/ddmg/slabs/chexpert'
-MAIN_DIR = '/data/ddmg/slabs'
-
-FEATURE_DESCRIPTION = {
-	'image_path': tf.io.FixedLenFeature([], tf.string, default_value=''),
-	'y0': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-	'y1': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-
-	'unbalanced_weights_pos': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-	'unbalanced_weights_neg': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-	'unbalanced_weights_both': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-
-	'balanced_weights_pos': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-	'balanced_weights_neg': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-	'balanced_weights_both': tf.io.FixedLenFeature([], tf.float32, default_value=0.0),
-
-}
-
+DATA_DIR = '/path/to/created/cohort'
+MAIN_DIR = '/path/to/chexpert/data'
 
 def read_decode_jpg(file_path):
 	img = tf.io.read_file(file_path)
@@ -48,43 +32,6 @@ def decode_number(label):
 	label = tf.expand_dims(label, 0)
 	label = tf.strings.to_number(label)
 	return label
-
-
-
-def map_to_image_label_ser(example_proto, pixel):
-		# Parse the input `tf.train.Example` proto using the dictionary above.
-		parsed_dict =  tf.io.parse_example(example_proto, FEATURE_DESCRIPTION)
-		# resize, rescale  image
-		print(parsed_dict['y0'])
-		assert 1==2
-		img = tf.io.read_file(parsed_dict['image_path'])
-
-		img = tf.image.decode_jpeg(img, channels=3)
-
-		img = tf.image.resize(img, (pixel, pixel))
-		img = img / 255
-
-		labels = tf.concat([
-			tf.reshape(parsed_dict['y0'], (1, 1)),
-			tf.reshape(parsed_dict['y1'], (1, 1))], axis = 0)
-		unbalanced_weights = tf.concat([
-			tf.reshape(parsed_dict['unbalanced_weights_pos'], (1, 1)),
-			tf.reshape(parsed_dict['unbalanced_weights_neg'], (1, 1)),
-			tf.reshape(parsed_dict['unbalanced_weights_both'], (1, 1))],
-			axis = 0 )
-
-		balanced_weights = tf.stack([
-			tf.reshape(parsed_dict['balanced_weights_pos'], (1, 1)),
-			tf.reshape(parsed_dict['balanced_weights_neg'], (1, 1)),
-			tf.reshape(parsed_dict['balanced_weights_both'], (1, 1))],
-			axis = 0 )
-		labels_and_weights = {
-				'labels': labels,
-				'unbalanced_weights': unbalanced_weights,
-				'balanced_weights': balanced_weights,
-		}
-
-		return img, labels_and_weights
 
 
 def map_to_image_label(x, pixel):
@@ -189,51 +136,11 @@ def get_weights(data_frame):
 
 	return data_frame
 
-
-def get_skewed_data_old(cand_df, rng):
-		if rng is None:
-				rng = np.random.RandomState(0)
-
-		ids_11 = cand_df.uid[((cand_df.y1==1) &  (cand_df.y0==1))].tolist()
-		ids_10_size = int(0.2 * (len(ids_11)/0.8))
-		ids_10_candidates = cand_df.uid[((cand_df.y1==1) &  (cand_df.y0==0))].tolist()
-		ids_10 = rng.choice(ids_10_candidates, size = ids_10_size, replace =False).tolist()
-
-		ids_01 = cand_df.uid[((cand_df.y1==0) &  (cand_df.y0==1))].tolist()
-		ids_00_size = int(0.8 * (len(ids_01)/0.8))
-		ids_00_candidates = cand_df.uid[((cand_df.y1==0) &  (cand_df.y0==0))].tolist()
-		ids_00 = rng.choice(ids_00_candidates, size = ids_00_size, replace =False).tolist()
-
-		ids = ids_11 + ids_10 + ids_00 + ids_01
-		sk_df = cand_df[(cand_df.uid.isin(ids))]
-		print("--------------- cross tab ----------------")
-		print(pd.crosstab(sk_df.y0, sk_df.y1))
-		return sk_df
-
-def get_unskewed_data_old(cand_df, skewed_data, rng):
-		if rng is None:
-				rng = np.random.RandomState(0)
-
-		n_y1 = skewed_data[(skewed_data.y0 == 1)].shape[0]
-		n_y0 = skewed_data[(skewed_data.y0 == 0)].shape[0]
-
-		ids_0 = rng.choice(
-				cand_df.uid[(cand_df.y0==0)],
-				size = n_y0, replace=False).tolist()
-		ids_1 = rng.choice(
-				cand_df.uid[(cand_df.y0==1)],
-				size = n_y1, replace=False).tolist()
-
-		ids = ids_0 + ids_1
-		usk_df = cand_df[(cand_df.uid.isin(ids))]
-		return usk_df
-
-
 def sample_conditional_on_main(df, y_value, dominant_probability, rng):
 	dominant_group = df.index[((df.y0==y_value) & (df.y1 ==y_value))]
 	small_group = df.index[((df.y0==y_value) & (df.y1 ==(1 - y_value)))]
-	
-	small_probability = 1 - dominant_probability 
+
+	small_probability = 1 - dominant_probability
 	if len(dominant_group) < (dominant_probability/small_probability)*len(small_group):
 		dominant_id = deepcopy(dominant_group).tolist()
 		small_id = rng.choice(
@@ -254,8 +161,8 @@ def sample_conditional_on_main(df, y_value, dominant_probability, rng):
 def fix_marginal(df, y0_probability, rng):
 	y0_group = df.index[(df.y0 == 0)]
 	y1_group = df.index[(df.y0 == 1)]
-	
-	y1_probability = 1 - y0_probability 
+
+	y1_probability = 1 - y0_probability
 	if len(y0_group) < (y0_probability/y1_probability) * len(y1_group):
 		y0_ids = deepcopy(y0_group).tolist()
 		y1_ids = rng.choice(
@@ -264,7 +171,7 @@ def fix_marginal(df, y0_probability, rng):
 	elif len(y1_group) < (y1_probability/y0_probability) * len(y0_group):
 		y1_ids = deepcopy(y1_group).tolist()
 		y0_ids = rng.choice(
-			y0_group, size = int( (y0_probability/y1_probability)*len(y1_group)), 
+			y0_group, size = int( (y0_probability/y1_probability)*len(y1_group)),
 			replace = False
 		).tolist()
 	dff = df.iloc[y1_ids + y0_ids]
@@ -276,17 +183,17 @@ def fix_marginal(df, y0_probability, rng):
 def get_skewed_data(cand_df, py1d=0.9, py00=0.7, rng=None):
 	if rng is None:
 		rng = np.random.RandomState(0)
-	# --- Fix the conditional distributions 
+	# --- Fix the conditional distributions
 	cand_df1 = sample_conditional_on_main(cand_df, 1, py1d, rng)
 	cand_df0 = sample_conditional_on_main(cand_df, 0, py1d, rng)
-	
+
 	cand_df10 = cand_df1.append(cand_df0)
 	cand_df10.reset_index(inplace = True, drop=True)
-	
-	# --- Fix the marginal 
+
+	# --- Fix the marginal
 	final_df = fix_marginal(cand_df10, py00, rng)
 	return final_df
-	
+
 
 def save_created_data(data_frame, experiment_directory, filename):
 	txt_df = f'{MAIN_DIR}/' + data_frame.Path + \
@@ -332,9 +239,7 @@ def load_created_data(experiment_directory, skew_train):
 
 	return train_data, validation_data, test_data_dict
 
-
-
-def create_save_chexpert_lists(experiment_directory, p_tr=.7, random_seed=None):
+def create_save_chexpert_lists(experiment_directory, p_tr=.7, p_val=0.25, random_seed=None):
 
 	if random_seed is None:
 		rng = np.random.RandomState(0)
@@ -350,9 +255,8 @@ def create_save_chexpert_lists(experiment_directory, p_tr=.7, random_seed=None):
 	ts_candidates = list(set(df.patient.unique()) - set(tr_val_candidates))
 
 	# --- split training into training and validation
-	# TODO: don't hard code the validation percent
 	tr_candidates = rng.choice(tr_val_candidates,
-		size=int(0.75 * len(tr_val_candidates)), replace=False).tolist()
+		size=int(1-p_val * len(tr_val_candidates)), replace=False).tolist()
 	val_candidates = list(set(tr_val_candidates) - set(tr_candidates))
 
 	tr_candidates_df = df[(df.patient.isin(tr_candidates))].reset_index(drop=True)
@@ -400,88 +304,21 @@ def create_save_chexpert_lists(experiment_directory, p_tr=.7, random_seed=None):
 	save_created_data(ts_usk_df, experiment_directory=experiment_directory,
 		filename='unskew_test')
 
-
-
-
-def build_input_fns_sr(skew_train='False', p_tr=.7, Kfolds=0, random_seed=None):
-
-	experiment_directory = (f'{DATA_DIR}/experiment_data/'
-		f'rs{random_seed}')
-
-	skew_str = 'unskew' if skew_train == 'False' else 'skew'
-
-	# --load splits
-	train_data_list, _, _ = load_created_data(
-		experiment_directory=experiment_directory, skew_train=skew_train)
-
-	# --this helps auto-set training steps at train time
-	training_data_size = len(train_data_list)
-
-	# Build an iterator over training batches.
-	def train_input_fn(params):
-		map_to_image_label_given_pixel = functools.partial(map_to_image_label,
-			pixel=params['pixel'])
-		batch_size = params['batch_size']
-		num_epochs = params['num_epochs']
-
-		dataset = tf.data.TFRecordDataset(f'{experiment_directory}/{skew_str}_train.tfrecord')
-		dataset = dataset.map(map_to_image_label_given_pixel, num_parallel_calls=1)
-		# dataset = dataset.shuffle(int(training_data_size * 0.05)).batch(batch_size).repeat(num_epochs)
-		dataset = dataset.batch(batch_size).repeat(num_epochs)
-		return dataset
-
-	# Build an iterator over validation batches
-
-	def valid_input_fn(params):
-		map_to_image_label_given_pixel = functools.partial(map_to_image_label,
-			pixel=params['pixel'])
-		batch_size = params['batch_size']
-		valid_dataset = tf.data.TFRecordDataset(f'{experiment_directory}/{skew_str}_valid.tfrecord')
-		valid_dataset = valid_dataset.map(map_to_image_label_given_pixel,
-			num_parallel_calls=1)
-		valid_dataset = valid_dataset.batch(batch_size, drop_remainder=True).repeat(1)
-		return valid_dataset
-
-
-	Kfold_input_fn_creater = None
-
-	# Build an iterator over the heldout set (shifted distribution).
-	def eval_input_fn_creater(py, params, asym=False):
-		map_to_image_label_given_pixel = functools.partial(map_to_image_label,
-			pixel=params['pixel'])
-		batch_size = params['batch_size']
-		if py == 0.5:
-			def eval_input_fn():
-				eval_shift_dataset = tf.data.TFRecordDataset(f'{experiment_directory}/unskew_test.tfrecord')
-				eval_shift_dataset = eval_shift_dataset.map(map_to_image_label_given_pixel)
-				eval_shift_dataset = eval_shift_dataset.batch(batch_size).repeat(1)
-				return eval_shift_dataset
-		else:
-			def eval_input_fn():
-				eval_shift_dataset = tf.data.TFRecordDataset(f'{experiment_directory}/skew_test.tfrecord')
-				eval_shift_dataset = eval_shift_dataset.map(map_to_image_label_given_pixel)
-				eval_shift_dataset = eval_shift_dataset.batch(batch_size).repeat(1)
-				return eval_shift_dataset
-
-		return eval_input_fn
-
-	return training_data_size, train_input_fn, valid_input_fn, Kfold_input_fn_creater, eval_input_fn_creater
-
-
-def build_input_fns(skew_train='False', p_tr=.7, Kfolds=0, random_seed=None):
+def build_input_fns(skew_train='False', p_tr=0.7, p_val=0.25,
+	Kfolds=0, random_seed=None):
 
 	experiment_directory = (f'{DATA_DIR}/experiment_data/'
 		f'rs{random_seed}')
 
 	if not os.path.exists(experiment_directory):
-		os.mkdir(experiment_directory)
+		os.system(f'mkdir -p {experiment_directory}')
 
 	# --- generate splits if they dont exist
 	if not os.path.exists(f'{experiment_directory}/sk_train.txt'):
 
 		create_save_chexpert_lists(
 			experiment_directory=experiment_directory,
-			p_tr=p_tr,
+			p_tr=p_tr, p_val=p_val,
 			random_seed=random_seed)
 
 	# --load splits

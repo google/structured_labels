@@ -40,53 +40,8 @@ def compute_loss(labels, logits, z_pred, sample_weights,
 	sample_weights_pos, sample_weights_neg, params):
 	if params['weighted_mmd'] == 'False':
 		return compute_loss_unweighted(labels, logits, z_pred, params)
-	elif params['weighted_mmd'] == 'half':
-		return compute_loss_half_weighted(labels, logits, z_pred,
-		sample_weights, sample_weights_pos, sample_weights_neg,  params)
 	return compute_loss_weighted(labels, logits, z_pred,
 		sample_weights, sample_weights_pos, sample_weights_neg,  params)
-
-
-def compute_loss_half_weighted(labels, logits, z_pred, sample_weights,
-	sample_weights_pos, sample_weights_neg, params):
-	y_main = tf.expand_dims(labels[:, params["label_ind"]], axis=-1)
-
-	individual_losses = tf.keras.losses.binary_crossentropy(
-		y_main, logits, from_logits=True)
-
-	# --- Prediction loss
-	unweighted_loss = tf.reduce_mean(individual_losses)
-	# --- MMD loss
-	if params['minimize_logits'] == 'True':
-		embedding_features = logits
-	else:
-		embedding_features = z_pred
-
-	if 'two_way_mmd' in params.keys() and params['two_way_mmd'] == 'True':
-		y_main_for_mmd = labels[:, params["label_ind"]]
-	else:
-		y_main_for_mmd = None
-
-
-	other_label_inds = [
-		lab_ind for lab_ind in range(labels.shape[1])
-		if lab_ind != params["label_ind"]
-	]
-
-	weighted_mmd_vals = []
-	for lab_ind in other_label_inds:
-		mmd_val = losses.mmd_loss(
-			embedding=embedding_features,
-			auxiliary_labels=labels[:, lab_ind],
-			main_labels=y_main_for_mmd,
-			weights_pos=sample_weights_pos,
-			weights_neg=sample_weights_neg,
-			params=params)
-		weighted_mmd_vals.append(mmd_val[0])
-
-	weighted_mmd = tf.concat(weighted_mmd_vals, axis=0)
-
-	return unweighted_loss, weighted_mmd
 
 def compute_loss_weighted(labels, logits, z_pred, sample_weights,
 	sample_weights_pos, sample_weights_neg, params):
@@ -108,11 +63,6 @@ def compute_loss_weighted(labels, logits, z_pred, sample_weights,
 	else:
 		embedding_features = z_pred
 
-	if 'two_way_mmd' in params.keys() and params['two_way_mmd'] == 'True':
-		y_main_for_mmd = labels[:, params["label_ind"]]
-	else:
-		y_main_for_mmd = None
-
 	other_label_inds = [
 		lab_ind for lab_ind in range(labels.shape[1])
 		if lab_ind != params["label_ind"]
@@ -123,7 +73,6 @@ def compute_loss_weighted(labels, logits, z_pred, sample_weights,
 		mmd_val = losses.mmd_loss(
 			embedding=embedding_features,
 			auxiliary_labels=labels[:, lab_ind],
-			main_labels=y_main_for_mmd,
 			weights_pos=sample_weights_pos,
 			weights_neg=sample_weights_neg,
 			params=params)
@@ -149,11 +98,6 @@ def compute_loss_unweighted(labels, logits, z_pred, params):
 	else:
 		embedding_features = z_pred
 
-	if 'two_way_mmd' in params.keys() and params['two_way_mmd'] == 'True':
-		y_main_for_mmd = labels[:, params["label_ind"]]
-	else:
-		y_main_for_mmd = None
-
 	other_label_inds = [
 		lab_ind for lab_ind in range(labels.shape[1])
 		if lab_ind != params["label_ind"]
@@ -164,7 +108,6 @@ def compute_loss_unweighted(labels, logits, z_pred, params):
 		mmd_val = losses.mmd_loss(
 			embedding=embedding_features,
 			auxiliary_labels=labels[:, lab_ind],
-			main_labels=y_main_for_mmd,
 			weights_pos=None,
 			weights_neg=None,
 			params=params)
@@ -173,26 +116,6 @@ def compute_loss_unweighted(labels, logits, z_pred, params):
 	unweighted_mmd = tf.concat(unweighted_mmd_vals, axis=0)
 
 	return unweighted_loss, unweighted_mmd
-
-
-def get_mmd_at_sigmas(sigma_list, labels, logits, z_pred, sample_weights,
-	sample_weights_pos, sample_weights_neg, params, eager=False):
-	result_dict = {}
-	for sigma_val in sigma_list:
-		temp_params = copy.deepcopy(params)
-		temp_params['sigma'] = sigma_val
-		_, mmd_val_at_sigma = compute_loss(labels, logits, z_pred,
-			sample_weights, sample_weights_pos, sample_weights_neg,
-			temp_params)
-		if eager:
-			result_dict[f'mmd{sigma_val}'] = mmd_val_at_sigma.numpy()
-
-		else:
-			result_dict[f'mmd{sigma_val}'] = tf.compat.v1.metrics.mean(
-				mmd_val_at_sigma)
-
-	return result_dict
-
 
 def get_prediction_by_group(labels, predictions):
 
@@ -220,31 +143,6 @@ def get_prediction_by_group(labels, predictions):
 
 	return mean_prediction_dict
 
-def count_labels(labels, predictions):
-
-	mean_prediction_dict = {}
-
-	labels11_mask = labels[:, 0] * labels[:, 1]
-	mean_prediction_dict['mean_pred_11'] = tf.compat.v1.metrics.mean(
-		labels11_mask
-	)
-
-	labels10_mask = labels[:, 0] * (1.0 - labels[:, 1])
-	mean_prediction_dict['mean_pred_10'] = tf.compat.v1.metrics.mean(
-		labels10_mask
-	)
-
-	labels01_mask = (1.0 - labels[:, 0]) * labels[:, 1]
-	mean_prediction_dict['mean_pred_01'] = tf.compat.v1.metrics.mean(
-		labels01_mask
-	)
-
-	labels00_mask = (1.0 - labels[:, 0]) * (1.0 - labels[:, 1])
-	mean_prediction_dict['mean_pred_00'] = tf.compat.v1.metrics.mean(
-		labels00_mask
-	)
-
-	return mean_prediction_dict
 
 def auroc(labels, predictions):
 	""" Computes AUROC """
@@ -252,37 +150,6 @@ def auroc(labels, predictions):
 	auc_metric.reset_states()
 	auc_metric.update_state(y_true=labels, y_pred=predictions)
 	return auc_metric
-
-def get_mmd_by_main_label(labels, predictions, params):
-	y_main = tf.expand_dims(labels[:, params["label_ind"]], axis=-1)
-	y_main_for_mmd = labels[:, params["label_ind"]]
-
-	if params['minimize_logits'] == 'True':
-		embedding_features = predictions['logits']
-	else:
-		embedding_features = predictions['embedding']
-
-	other_label_inds = [
-		lab_ind for lab_ind in range(labels.shape[1])
-		if lab_ind != params["label_ind"]
-	]
-
-	assert len(other_label_inds) ==1
-
-	lab_ind = other_label_inds[0]
-	mmd_val = losses.mmd_loss(
-		embedding=embedding_features,
-		auxiliary_labels=labels[:, lab_ind],
-		main_labels=y_main_for_mmd,
-		weights_pos=None,
-		weights_neg=None,
-		params=params)
-
-	mmd_val_dict = {
-		'y1': tf.compat.v1.metrics.mean(mmd_val[1]),
-		'y0': tf.compat.v1.metrics.mean(mmd_val[2])
-		}
-	return mmd_val_dict
 
 def get_eval_metrics_dict(labels, predictions, sample_weights,
 	sample_weights_pos, sample_weights_neg, sigma_list, params):
@@ -297,20 +164,10 @@ def get_eval_metrics_dict(labels, predictions, sample_weights,
 	eval_metrics_dict["auc"] = auroc(
 		labels=y_main, predictions=predictions["probabilities"])
 
-	# -- MMD at different sigmas
-	mmd_val_at_sigmas = get_mmd_at_sigmas(sigma_list, labels,
-		predictions['logits'], predictions['embedding'],
-		sample_weights, sample_weights_pos, sample_weights_neg,
-		params)
-
 	# -- Mean predictions for each group
 	mean_prediction_by_group = get_prediction_by_group(labels,
 		predictions["probabilities"])
 
-	if 'two_way_mmd' in params.keys():
-		mmd_by_main_label = get_mmd_by_main_label(labels, predictions, params)
-		return {**eval_metrics_dict, **mmd_val_at_sigmas, **mean_prediction_by_group, **mmd_by_main_label}
-
-	return {**eval_metrics_dict, **mmd_val_at_sigmas, **mean_prediction_by_group}
+	return {**eval_metrics_dict, **mean_prediction_by_group}
 
 
