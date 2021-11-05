@@ -37,8 +37,6 @@ import shared.utils as utils
 from shared import evaluation_metrics
 
 
-
-
 def get_last_saved_model(estimator_dir):
 	subdirs = [x for x in Path(estimator_dir).iterdir()
 		if x.is_dir() and 'temp' not in str(x)]
@@ -64,17 +62,11 @@ def get_data_waterbirds(kfolds, random_seed, clean_back, py0, py1_y0, pixel, pfl
 	map_to_image_label_given_pixel = functools.partial(wb.map_to_image_label,
 		pixel=pixel)
 
-	# random.seed(0)
-	# valida_data_shuffled = random.sample(valid_data,len(valid_data))
-	# valid_data = valid_data + valida_data_shuffled
-	# random.shuffle(valid_data)
-
 	valid_dataset = tf.data.Dataset.from_tensor_slices(valid_data)
 	valid_dataset = valid_dataset.map(map_to_image_label_given_pixel, num_parallel_calls=1)
 	batch_size = int(len(valid_data) / kfolds)
 	valid_dataset = valid_dataset.batch(batch_size, drop_remainder=True).repeat(1)
 	return valid_dataset
-
 
 
 def get_data_chexpert(kfolds, random_seed, skew_train, pixel):
@@ -85,6 +77,7 @@ def get_data_chexpert(kfolds, random_seed, skew_train, pixel):
 		experiment_directory=experiment_directory, skew_train=skew_train)
 	map_to_image_label_given_pixel = functools.partial(chx.map_to_image_label,
 		pixel=pixel)
+	# to avoid running running into OOM issues
 	if len(valid_data) > 1000:
 		valid_data = sample(valid_data, 1000)
 
@@ -95,26 +88,7 @@ def get_data_chexpert(kfolds, random_seed, skew_train, pixel):
 	return valid_dataset
 
 
-def get_data_cmnist(kfolds, random_seed, py0, py1_y0, pixel):
-
-	experiment_directory = (f'/data/ddmg/slabs/cmnist/experiment_data/'
-		f'rs{random_seed}_py0{py0}_py1_y0{py1_y0}')
-
-	_, valid_data, _ = cm.load_created_data(
-		experiment_directory=experiment_directory, py1_y0_s=[.5])
-
-	if len(valid_data) > 1000:
-		valid_data = sample(valid_data, 1000)
-
-	valid_dataset = tf.data.Dataset.from_tensor_slices(valid_data)
-	valid_dataset = valid_dataset.map(cm.map_to_image_label, num_parallel_calls=1)
-	batch_size = int(len(valid_data) / kfolds)
-	valid_dataset = valid_dataset.batch(batch_size, drop_remainder=True).repeat(1)
-	return valid_dataset
-
-
-
-def get_optimal_sigma_for_run(config, kfolds, weighted_xv, compute_loss):
+def get_optimal_sigma_for_run(config, kfolds, weighted_xv):
 	# -- get the dataset
 	# print("get data")
 	if 'skew_train' in config.keys():
@@ -128,11 +102,6 @@ def get_optimal_sigma_for_run(config, kfolds, weighted_xv, compute_loss):
 			config['py0'], config['py1_y0'], config['pixel'], config['pflip0'])
 		base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
 			'waterbirds'))
-	else:
-		valid_dataset = get_data_cmnist(kfolds, config['random_seed'], config['py0'],
-			config['py1_y0'], config['pixel'])
-		base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..',
-			'cmnist'))
 
 	# -- get the hash directory where the model lives
 	hash_string = utils.config_hasher(config)
@@ -150,17 +119,11 @@ def get_optimal_sigma_for_run(config, kfolds, weighted_xv, compute_loss):
 		'alpha': config['alpha'],
 		'label_ind': 0}
 
-	if 'two_way_mmd' in config.keys():
-		params['two_way_mmd'] = config['two_way_mmd']
-
-
 	if weighted_xv == 'weighted':
 		params['weighted_mmd'] = 'True'
 	if weighted_xv == 'weighted_bal':
 		params['weighted_mmd'] = 'True'
 		params['balanced_weights'] = 'True'
-	# if params['weighted_mmd'] == 'True':
-	# 	params['balanced_weights'] = 'True'
 
 	metric_values = []
 	for batch_id, examples in enumerate(valid_dataset):
@@ -169,44 +132,26 @@ def get_optimal_sigma_for_run(config, kfolds, weighted_xv, compute_loss):
 		sample_weights, sample_weights_pos, sample_weights_neg = train_utils.extract_weights(
 			labels_weights, params)
 		labels = tf.identity(labels_weights['labels'])
-		# temp_df = pd.DataFrame(labels_weights['labels'].numpy())
-		# temp_df.columns = ['lab1', 'lab2']
-		# print(pd.crosstab(temp_df['lab1'], temp_df['lab2']))
-
 
 		logits = model(tf.convert_to_tensor(x))['logits']
 		zpred = model(tf.convert_to_tensor(x))['embedding']
 
-		if compute_loss:
-			# metric_value = evaluation_metrics.compute_pred_loss(labels, logits, sample_weights, params)
-			metric_value, _ = evaluation_metrics.compute_loss(labels, logits, zpred, sample_weights, sample_weights_pos, sample_weights_neg, params)
-			metric_value = metric_value.numpy()
-		else:
-			metric_value = evaluation_metrics.get_mmd_at_sigmas([config['sigma']], labels, logits,
-				zpred, sample_weights, sample_weights_pos, sample_weights_neg, params, True)
-			metric_value = list(metric_value.values())[0]
+
+		metric_value = evaluation_metrics.get_mmd_at_sigmas([config['sigma']], labels, logits,
+			zpred, sample_weights, sample_weights_pos, sample_weights_neg, params, True)
+		metric_value = list(metric_value.values())[0]
 
 		metric_values.append(metric_value)
 
-	if compute_loss:
-		curr_results = pd.DataFrame({
-			'random_seed': config['random_seed'],
-			'alpha': config['alpha'],
-			'sigma': config['sigma'],
-			'pred_loss': np.mean(metric_values),
-		}, index=[0])
-		for fold_id in range(kfolds):
-			curr_results[f'pred_loss_{fold_id}'] = metric_values[fold_id]
-	else:
-		curr_results = pd.DataFrame({
-			'random_seed': config['random_seed'],
-			'alpha': config['alpha'],
-			'sigma': config['sigma'],
-			'mmd': np.mean(metric_values),
-			'pval': stats.ttest_1samp(metric_values, 0.0)[1]
-		}, index=[0])
-		if (np.mean(metric_values) == 0.0 and np.var(metric_values) == 0.0):
-			curr_results['pval'] = 1
+	curr_results = pd.DataFrame({
+		'random_seed': config['random_seed'],
+		'alpha': config['alpha'],
+		'sigma': config['sigma'],
+		'mmd': np.mean(metric_values),
+		'pval': stats.ttest_1samp(metric_values, 0.0)[1]
+	}, index=[0])
+	if (np.mean(metric_values) == 0.0 and np.var(metric_values) == 0.0):
+		curr_results['pval'] = 1
 	return curr_results
 
 
@@ -220,35 +165,16 @@ def get_diff_to_best_pred_loss(x, kfolds):
 	return stats.ttest_ind(metric_values, best_loss)[1]
 
 
-def get_optimal_sigma(all_config, kfolds, weighted_xv, compute_loss):
+def get_optimal_sigma(all_config, kfolds, weighted_xv):
 	all_results = []
 	runner_wrapper = functools.partial(get_optimal_sigma_for_run, kfolds=kfolds,
-		weighted_xv=weighted_xv, compute_loss=compute_loss)
-
-	# for cid, config in enumerate(all_config):
-	# 	print(cid)
-	# 	results = runner_wrapper(config)
-	# 	all_results.append(results)
+		weighted_xv=weighted_xv)
 
 	pool = multiprocessing.Pool(20)
 	for results in tqdm.tqdm(pool.imap_unordered(runner_wrapper, all_config), total=len(all_config)):
 		all_results.append(results)
 
 	all_results = pd.concat(all_results, axis=0, ignore_index=True)
-
-	if compute_loss:
-		best_loss_by_seed = all_results[['random_seed', 'pred_loss']].groupby('random_seed').pred_loss.min()
-		best_loss_by_seed = best_loss_by_seed.to_frame()
-		best_loss_by_seed.reset_index(inplace=True, drop=False)
-		fold_pred_loss_cols = [f'pred_loss_{fold_id}' for fold_id in range(kfolds)]
-		fold_pred_loss_cols = fold_pred_loss_cols + ['pred_loss']
-		best_loss_by_seed = best_loss_by_seed.merge(all_results[fold_pred_loss_cols], on ='pred_loss')
-		df_rename_mapper = {col: f'best_{col}' for col in best_loss_by_seed.columns if col != 'random_seed'}
-
-		best_loss_by_seed.rename(columns=df_rename_mapper, inplace=True)
-
-		all_results = all_results.merge(best_loss_by_seed, on='random_seed')
-		all_results['pval'] = all_results.apply(get_diff_to_best_pred_loss, kfolds=kfolds, axis=1)
 	return all_results
 
 

@@ -118,20 +118,18 @@ def reshape_results(results):
 
 def get_optimal_model_results(mode, configs, base_dir, hparams,
 	equivalent=True, weighted_xv=False, pval=0.1):
-
-	if mode not in ['classic', 'two_step', 'three_step', 'accuracy']:
+	if mode not in ['classic', 'two_step']:
 		raise NotImplementedError('Can only run classic or two_step modes')
 	if mode == 'classic':
 		return get_optimal_model_classic(configs, None, base_dir, hparams)
 	elif mode =='two_step':
 		return get_optimal_model_two_step(configs, base_dir, hparams, weighted_xv, pval)
-	elif mode == 'accuracy':
-		return get_optimal_model_accuracy(configs, None, base_dir, hparams)
 
-def get_optimal_model_two_step(configs, base_dir, hparams, weighted_xv, pval):
+
+def get_optimal_model_two_step(all_results, base_dir, hparams, weighted_xv, pval):
 	all_results, available_configs = import_results(configs, base_dir)
 	sigma_results = get_sigma.get_optimal_sigma(available_configs, kfolds=3,
-		weighted_xv=weighted_xv, compute_loss=False)
+		weighted_xv=weighted_xv)
 	best_pval = sigma_results.groupby('random_seed').pval.max()
 	best_pval = best_pval.to_frame()
 	best_pval.reset_index(inplace=True, drop=False)
@@ -164,15 +162,13 @@ def get_optimal_model_two_step(configs, base_dir, hparams, weighted_xv, pval):
 
 	return get_optimal_model_classic(None, filtered_results, base_dir, hparams)
 
-def get_optimal_model_classic(configs, filtered_results, base_dir, hparams):
-	if ((configs is None) and (filtered_results is None)):
-		raise ValueError("Need either configs or table of results_dict")
+def get_optimal_model_classic(all_results, filtered_results, base_dir, hparams):
+	if ((all_results is None) and (filtered_results is None)):
+		raise ValueError("Need either filtered results or table of full results")
 
-	if configs is not None:
-		print("getting results")
-		all_results, _ = import_results(configs, base_dir)
-	else:
+	if all_results is None:
 		all_results = filtered_results.copy()
+
 	columns_to_keep = hparams + ['random_seed', 'validation_pred_loss']
 	best_loss = all_results[columns_to_keep]
 	best_loss = best_loss.groupby('random_seed').validation_pred_loss.min()
@@ -188,48 +184,6 @@ def get_optimal_model_classic(configs, filtered_results, base_dir, hparams):
 		(all_results.validation_pred_loss == all_results.min_validation_pred_loss)
 	]
 
-	optimal_configs = all_results[['random_seed', 'hash']]
-
-	# --- get the final results over all runs
-	mean_results = all_results.mean(axis=0).to_frame()
-	mean_results.rename(columns={0: 'mean'}, inplace=True)
-	std_results = all_results.std(axis=0).to_frame()
-	std_results.rename(columns={0: 'std'}, inplace=True)
-	final_results = mean_results.merge(
-		std_results, left_index=True, right_index=True
-	)
-
-	final_results = final_results.transpose()
-	final_results_clean = reshape_results(final_results)
-
-	return final_results_clean, optimal_configs
-
-
-def get_optimal_model_accuracy(configs, filtered_results, base_dir, hparams):
-	if ((configs is None) and (filtered_results is None)):
-		raise ValueError("Need either configs or table of results_dict")
-
-	if configs is not None:
-		print("getting results")
-		all_results, _ = import_results(configs, base_dir)
-	else:
-		all_results = filtered_results.copy()
-
-	all_results['validation_pred_loss'] = all_results['validation_accuracy']
-	columns_to_keep = hparams + ['random_seed', 'validation_pred_loss']
-	best_loss = all_results[columns_to_keep]
-	best_loss = best_loss.groupby('random_seed').validation_pred_loss.max()
-	best_loss = best_loss.to_frame()
-
-
-	best_loss.reset_index(drop=False, inplace=True)
-	best_loss.rename(columns={'validation_pred_loss': 'min_validation_pred_loss'},
-		inplace=True)
-	all_results = all_results.merge(best_loss, on='random_seed')
-
-	all_results = all_results[
-		(all_results.validation_pred_loss == all_results.min_validation_pred_loss)
-	]
 	optimal_configs = all_results[['random_seed', 'hash']]
 
 	# --- get the final results over all runs
