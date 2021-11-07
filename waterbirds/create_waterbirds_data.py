@@ -19,10 +19,8 @@ import shutil
 
 from absl import app
 
-# TODO dont hard code directories
-OUTPUT_DIR = '/data/ddmg/slabs/waterbirds/places_data'
-BIRDS_DIR = '/data/ddmg/slabs/CUB_200_2011'
-PLACES_DIR = '/data/ddmg/slabs/data_large'
+OUTPUT_DIR = '/path/to/where_you_want_to_save'
+PLACES_DIR = '/path/to/where_you_downloaded_places_data/data_large'
 
 WATER_PLACES = ['o/ocean', 'l/lake/natural']
 BEACH_PLACES = ['b/beach']
