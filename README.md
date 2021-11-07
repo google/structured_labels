@@ -1,15 +1,3 @@
-# Expoiting structured labels for underspecified model generalization
+# Causally-motivated shortcut removal using auxiliary labels.
 
-## Corrupted MNIST experiment
-
-First run the model training and tuning by running: 
-
-```
-python -m experiments.cmnist --model_to_tune "slabs"
-```
-Second, run the post processing by running: 
-
-```
-python -m cmnist.post_processing
-```
-
+The code has the chexpert and waterbirds experiments. See the `README` files in each of the `chexpert` and `waterbirds` directories for instructions on how to run the expedriments.
