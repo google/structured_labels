@@ -1,7 +1,10 @@
-# data files 
+# data files
 *.tar
 
-# scratch files 
+# file to get background image hash matches
+get_image_hashes.*
+
+# scratch files
 trash.py
 
 # Byte-compiled / optimized / DLL files
@@ -12,7 +15,7 @@ __pycache__/
 # My scratch pad
 scratch_pad.sh
 
-# debugging notebooks 
+# debugging notebooks
 *.ipynb
 
 
