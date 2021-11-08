@@ -2,7 +2,9 @@
 *.tar
 
 # file to get background image hash matches
-get_image_hashes.*
+get_image_hash*
+waterbirds_easy.ipynb
+
 
 # scratch files
 trash.py
