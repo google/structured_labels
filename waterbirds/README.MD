@@ -17,7 +17,7 @@ To train a single model, run the following command after replacing `/path/to/whe
 
 ```bash
 python -m waterbirds.main --alpha 10.0 --architecture pretrained_resnet \
-	--balanced_weights True --batch_size 64 --dropout_rate 0.0 --embedding_dim 10 \
+	--balanced_weights True --batch_size 64 --dropout_rate 0.0 --embedding_dim -1 \
 	--l2_penalty 0.0 --minimize_logits False --num_epochs 10 \
 	--pflip0 0.01 --pflip1 0.01 --pixel 128 --py0 0.8 --py1_y0 0.9 --random_seed 0 \
 	--sigma 10.0  --weighted_mmd True \

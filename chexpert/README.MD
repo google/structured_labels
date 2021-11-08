@@ -21,7 +21,7 @@ To train a single model, run the following command after replacing `/path/to/whe
 
 ```bash
 python -m chexpert.main --alpha 10.0 --architecture pretrained_densenet \
-	--balanced_weights True --batch_size 16 --dropout_rate 0.0 --embedding_dim 10 \
+	--balanced_weights True --batch_size 16 --dropout_rate 0.0 --embedding_dim -1 \
 	--l2_penalty 0.0 --minimize_logits False --num_epochs 10 --pixel 512 --random_seed 0 \
 	--sigma 10.0 --skew_train True --weighted_mmd True \
 	--exp_dir /path/to/where_to_save_model --gpuid gpuid
